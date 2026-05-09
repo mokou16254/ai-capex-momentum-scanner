@@ -7,9 +7,14 @@ import yaml
 
 
 def load_yaml(path: str | Path) -> dict[str, Any]:
-    """Load a YAML file and return a dictionary."""
+    """Load a YAML file and return a dictionary.
+
+    PyYAML's default loader treats tickers like ON as booleans in YAML 1.1.
+    BaseLoader keeps scalar values as strings, which is safer for ticker lists.
+    Numeric config values are converted to float/int later by the scanner.
+    """
     with open(path, "r", encoding="utf-8") as file:
-        data = yaml.safe_load(file) or {}
+        data = yaml.load(file, Loader=yaml.BaseLoader) or {}
     if not isinstance(data, dict):
         raise ValueError(f"Expected YAML mapping in {path}")
     return data
@@ -26,7 +31,9 @@ def flatten_watchlist(watchlist: dict[str, list[str]]) -> dict[str, dict[str, ob
     """Deduplicate tickers while preserving category labels."""
     ticker_map: dict[str, dict[str, object]] = {}
     for category, tickers in watchlist.items():
-        for raw_ticker in tickers or []:
+        if not isinstance(tickers, list):
+            continue
+        for raw_ticker in tickers:
             ticker = str(raw_ticker).strip().upper()
             if not ticker:
                 continue
