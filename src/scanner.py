@@ -107,7 +107,7 @@ def _category_weight(category_meta: dict[str, Any], config: dict[str, Any]) -> f
     return weight
 
 
-def _priority_score(technical_score: int, category_weight: float, rs_20d_vs_qqq: float | None, rs_20d_vs_smh: float | None, atr_percent: float, avg_dollar_volume_m: float, config: dict[str, Any]) -> int:
+def _priority_score_raw(technical_score: int, category_weight: float, rs_20d_vs_qqq: float | None, rs_20d_vs_smh: float | None, atr_percent: float, avg_dollar_volume_m: float, config: dict[str, Any]) -> float:
     score = technical_score * category_weight
     if rs_20d_vs_qqq is not None and rs_20d_vs_qqq > 0:
         score += min(rs_20d_vs_qqq, 15) * 0.7
@@ -117,7 +117,11 @@ def _priority_score(technical_score: int, category_weight: float, rs_20d_vs_qqq:
         score -= 15
     if atr_percent >= float(config.get("very_high_atr_percent", 10.0)):
         score -= 8
-    return max(0, min(100, int(round(score))))
+    return round(score, 2)
+
+
+def _priority_score(raw_score: float) -> int:
+    return max(0, min(100, int(round(raw_score))))
 
 
 def _conclusion(label: str, rsi: float, dist10: float, dist21: float, rel_vol: float, near_50d_high: bool, priority_score: int | None = None) -> str:
@@ -125,8 +129,8 @@ def _conclusion(label: str, rsi: float, dist10: float, dist21: float, rel_vol: f
         return "Watch for bounce / constructive pullback"
     if label == "Breakout Watch":
         return "Watch for breakout confirmation"
-    if label == "Extended / Do Not Chase":
-        return "Strong but extended; avoid chasing"
+    if label == "Extended / Hold, Do Not Chase":
+        return "Strong trend; hold/watch, but avoid fresh chasing"
     if label == "Breakdown Risk":
         return "Caution: possible structure damage"
     if priority_score is not None and priority_score >= 80:
@@ -228,8 +232,8 @@ def classify_setup(latest: pd.Series, config: dict[str, Any]) -> tuple[str, list
         score = min(score, 45)
         notes.append("Below EMA21 with weak RSI / breakdown risk")
     elif extended:
-        label = "Extended / Do Not Chase"
-        notes.append("Trend may be strong but entry is stretched")
+        label = "Extended / Hold, Do Not Chase"
+        notes.append("Trend may continue, but entry is stretched")
     elif breakout:
         label = "Breakout Watch"
         notes.append("Meets breakout-watch criteria")
@@ -286,7 +290,8 @@ def scan_ticker(
     rs_60d_vs_smh = ticker_ret_60 - smh_ret_60 if ticker_ret_60 is not None and smh_ret_60 is not None else None
 
     category_weight = _category_weight(category_meta, config)
-    priority_score = _priority_score(technical_score, category_weight, rs_20d_vs_qqq, rs_20d_vs_smh, atr_percent, avg_dollar_volume_m, config)
+    raw_priority_score = _priority_score_raw(technical_score, category_weight, rs_20d_vs_qqq, rs_20d_vs_smh, atr_percent, avg_dollar_volume_m, config)
+    priority_score = _priority_score(raw_priority_score)
 
     row = {
         "date": data.index[-1].strftime("%Y-%m-%d"),
@@ -294,6 +299,7 @@ def scan_ticker(
         "setup_classification": label,
         "technical_score": technical_score,
         "priority_score": priority_score,
+        "raw_priority_score": raw_priority_score,
         "category_weight": round(category_weight, 2),
         "conclusion": _conclusion(label, rsi, dist10, dist21, rel_vol, near_50d_high, priority_score),
         "trend_state": _ema_state(close, ema10, ema21, ema50),
