@@ -8,7 +8,7 @@ import pandas as pd
 CATEGORY_ORDER = [
     "Pullback Setup",
     "Breakout Watch",
-    "Extended / Do Not Chase",
+    "Extended / Hold, Do Not Chase",
     "Breakdown Risk",
     "Neutral",
 ]
@@ -18,6 +18,11 @@ CSV_COLUMNS = [
     "ticker",
     "setup_classification",
     "priority_score",
+    "raw_priority_score",
+    "priority_rank",
+    "priority_percentile",
+    "category_rank",
+    "category_percentile",
     "technical_score",
     "category_weight",
     "conclusion",
@@ -55,8 +60,21 @@ CSV_COLUMNS = [
 ]
 
 
+def add_rank_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Add global and within-category priority ranks/percentiles."""
+    data = df.copy()
+    if data.empty or "raw_priority_score" not in data.columns:
+        return data
+    data["priority_rank"] = data["raw_priority_score"].rank(method="min", ascending=False).astype(int)
+    data["priority_percentile"] = (data["raw_priority_score"].rank(pct=True) * 100).round(1)
+    data["category_rank"] = data.groupby("primary_category")["raw_priority_score"].rank(method="min", ascending=False).astype(int)
+    data["category_percentile"] = (data.groupby("primary_category")["raw_priority_score"].rank(pct=True) * 100).round(1)
+    return data
+
+
 def _sort_key(df: pd.DataFrame) -> list[str]:
-    """Use new score columns, while staying backward-compatible with older output."""
+    if "raw_priority_score" in df.columns:
+        return ["setup_classification", "raw_priority_score"]
     if "priority_score" in df.columns:
         return ["setup_classification", "priority_score"]
     if "score" in df.columns:
@@ -65,6 +83,8 @@ def _sort_key(df: pd.DataFrame) -> list[str]:
 
 
 def _score_column(df: pd.DataFrame) -> str:
+    if "raw_priority_score" in df.columns:
+        return "raw_priority_score"
     if "priority_score" in df.columns:
         return "priority_score"
     if "score" in df.columns:
@@ -77,6 +97,7 @@ def write_csv(results: list[dict], path: str | Path) -> None:
     if df.empty:
         df.to_csv(path, index=False)
         return
+    df = add_rank_columns(df)
     sort_columns = _sort_key(df)
     ascending = [True] + [False] * (len(sort_columns) - 1)
     df.sort_values(sort_columns, ascending=ascending, inplace=True)
@@ -89,11 +110,15 @@ def write_csv(results: list[dict], path: str | Path) -> None:
 def _format_ticker_section(row: pd.Series) -> str:
     core_tag = "core watchlist" if bool(row["in_core_watchlist"]) else "outside core"
     priority = row.get("priority_score", row.get("score", "N/A"))
+    raw_priority = row.get("raw_priority_score", "N/A")
     technical = row.get("technical_score", row.get("score", "N/A"))
+    rank = row.get("priority_rank", "N/A")
+    category_rank = row.get("category_rank", "N/A")
     lines = [
         f"### {row['ticker']} - {row['setup_classification']}",
         f"**Conclusion:** {row['conclusion']}",
-        f"Priority score: {priority} | Technical score: {technical} ({core_tag})",
+        f"Priority: {priority} raw={raw_priority} rank={rank} | Category rank: {category_rank} ({core_tag})",
+        f"Technical score: {technical}",
         f"Close: ${row['close']} | Change: {row['percent_change']}% | RSI: {row['rsi14']} | RVOL: {row['relative_volume']}",
         f"RS 20d vs QQQ: {row.get('rs_20d_vs_qqq', 'N/A')} | RS 20d vs SMH: {row.get('rs_20d_vs_smh', 'N/A')} | ATR%: {row.get('atr_percent', 'N/A')}",
         f"Trend: {row['trend_state']}",
@@ -116,6 +141,7 @@ def write_markdown_report(results: list[dict], path: str | Path) -> None:
         Path(path).write_text("# AI Capex Momentum Scanner - Daily Report\n\nNo results generated.\n", encoding="utf-8")
         return
 
+    df = add_rank_columns(df)
     score_column = _score_column(df)
     report_date = df["date"].max()
     lines = [
