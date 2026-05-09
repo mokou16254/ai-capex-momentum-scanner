@@ -10,10 +10,18 @@ from src.utils import ensure_output_dir, flatten_watchlist, load_yaml
 STATUS_EMOJI = {
     "Pullback Setup": "🟢",
     "Breakout Watch": "🚀",
-    "Extended / Do Not Chase": "🟠",
+    "Extended / Hold, Do Not Chase": "🟠",
     "Breakdown Risk": "🔴",
     "Neutral": "⚪",
 }
+
+CATEGORY_ORDER = [
+    "Pullback Setup",
+    "Breakout Watch",
+    "Extended / Hold, Do Not Chase",
+    "Breakdown Risk",
+    "Neutral",
+]
 
 
 def print_header(title: str) -> None:
@@ -63,8 +71,9 @@ def main() -> None:
             emoji = STATUS_EMOJI.get(label, "•")
             print(
                 f"[{index:>3}/{len(ticker_map)}] {emoji} {ticker:<6} "
-                f"{label:<24} "
+                f"{label:<30} "
                 f"tech={result.row['technical_score']:>3} prio={result.row['priority_score']:>3} "
+                f"raw={result.row.get('raw_priority_score', 0):>6} "
                 f"RS20Q={str(result.row['rs_20d_vs_qqq']):>6} "
                 f"ATR%={result.row['atr_percent']:>5} "
                 f"RVOL={result.row['relative_volume']:>4}"
@@ -82,14 +91,14 @@ def main() -> None:
         for row in results:
             label = row["setup_classification"]
             counts[label] = counts.get(label, 0) + 1
-        for label in ["Pullback Setup", "Breakout Watch", "Extended / Do Not Chase", "Breakdown Risk", "Neutral"]:
-            print(f"{STATUS_EMOJI.get(label, '•')} {label:<24} {counts.get(label, 0):>3}")
+        for label in CATEGORY_ORDER:
+            print(f"{STATUS_EMOJI.get(label, '•')} {label:<30} {counts.get(label, 0):>3}")
         print("\nTop priority names:")
-        top_rows = sorted(results, key=lambda row: row.get("priority_score", 0), reverse=True)[:10]
+        top_rows = sorted(results, key=lambda row: row.get("raw_priority_score", row.get("priority_score", 0)), reverse=True)[:10]
         for row in top_rows:
             print(
-                f"  {row['ticker']:<6} prio={row['priority_score']:>3} tech={row['technical_score']:>3} "
-                f"{row['setup_classification']:<24} {row['conclusion']}"
+                f"  {row['ticker']:<6} prio={row['priority_score']:>3} raw={row.get('raw_priority_score', 0):>6} "
+                f"tech={row['technical_score']:>3} {row['setup_classification']:<30} {row['conclusion']}"
             )
     if failures:
         failure_path = output_dir / "failures.txt"
