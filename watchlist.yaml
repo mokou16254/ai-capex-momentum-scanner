@@ -1,0 +1,107 @@
+core_watchlist:
+  - IREN
+  - AXTI
+  - ARM
+  - MU
+  - CIEN
+  - AMAT
+  - STX
+  - POWL
+  - IESC
+  - FIX
+
+ai_compute_semis:
+  - NVDA
+  - AMD
+  - ARM
+  - AVGO
+  - MRVL
+  - QCOM
+
+foundry_manufacturing:
+  - TSM
+  - GFS
+  - INTC
+
+memory_storage:
+  - MU
+  - WDC
+  - STX
+  - SNDK
+
+semi_equipment_lithography:
+  - ASML
+  - AMAT
+  - LRCX
+  - KLAC
+  - ASMI
+  - TER
+  - UCTT
+  - ICHR
+
+semi_materials_components:
+  - AXTI
+  - MXL
+  - ON
+  - AEHR
+  - ALAB
+  - ACLS
+
+optical_networking_photonics:
+  - CIEN
+  - LITE
+  - COHR
+  - AAOI
+  - LWLG
+  - FN
+  - MTSI
+  - GLW
+  - ANET
+
+ai_cloud_infra:
+  - NBIS
+  - ORCL
+  - MSFT
+  - AMZN
+  - GOOGL
+  - META
+
+bitcoin_ai_power_infra:
+  - IREN
+  - CORZ
+  - CIFR
+  - WULF
+  - CLSK
+  - HUT
+  - BTDR
+
+power_grid_electrical:
+  - VRT
+  - ETN
+  - POWL
+  - IESC
+  - FIX
+  - STRL
+  - NVT
+  - HUBB
+  - PWR
+
+data_center_reits_infra:
+  - EQIX
+  - DLR
+  - IRM
+
+cooling_hvac_construction:
+  - TT
+  - CARR
+  - JCI
+  - FIX
+  - STRL
+
+software_data_security:
+  - PLTR
+  - SNOW
+  - DDOG
+  - NET
+  - CRWD
+  - MDB
