@@ -34,7 +34,6 @@ semi_equipment_lithography:
   - AMAT
   - LRCX
   - KLAC
-  - ASMI
   - TER
   - UCTT
   - ICHR
@@ -98,6 +97,32 @@ cooling_hvac_construction:
   - FIX
   - STRL
 
+space_defense:
+  - RKLB
+  - ASTS
+  - LUNR
+  - RDW
+  - PL
+  - BKSY
+  - SPIR
+  - SATL
+  - IRDM
+  - VSAT
+  - LHX
+  - NOC
+  - LMT
+
+nuclear_uranium_power:
+  - CEG
+  - VST
+  - NRG
+  - SMR
+  - OKLO
+  - CCJ
+  - UUUU
+  - LEU
+  - BWXT
+
 software_data_security:
   - PLTR
   - SNOW
@@ -105,3 +130,6 @@ software_data_security:
   - NET
   - CRWD
   - MDB
+  - PANW
+  - ZS
+  - OKTA
