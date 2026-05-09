@@ -22,6 +22,16 @@ def _near_high(latest: pd.Series, high_col: str, threshold_pct: float) -> bool:
     return (high - float(latest["Close"])) / high * 100 <= threshold_pct
 
 
+def _safe_pct_return(data: pd.DataFrame, days: int) -> float | None:
+    if len(data) <= days:
+        return None
+    start = float(data["Close"].iloc[-days - 1])
+    end = float(data["Close"].iloc[-1])
+    if start <= 0:
+        return None
+    return (end / start - 1) * 100
+
+
 def _ema_state(close: float, ema10: float, ema21: float, ema50: float) -> str:
     if close > ema10 > ema21 > ema50:
         return "Strong uptrend: above EMA10/21/50"
@@ -64,7 +74,53 @@ def _position_state(dist10: float, dist21: float, near_50d_high: bool) -> str:
     return "Middle of range"
 
 
-def _conclusion(label: str, rsi: float, dist10: float, dist21: float, rel_vol: float, near_50d_high: bool) -> str:
+def _volatility_state(atr_percent: float, config: dict[str, Any]) -> str:
+    high = float(config.get("high_atr_percent", 6.0))
+    very_high = float(config.get("very_high_atr_percent", 10.0))
+    if atr_percent >= very_high:
+        return "Very high volatility"
+    if atr_percent >= high:
+        return "High volatility"
+    if atr_percent >= 3.0:
+        return "Medium volatility"
+    return "Low volatility"
+
+
+def _liquidity_state(avg_dollar_volume_m: float, config: dict[str, Any]) -> str:
+    minimum = float(config.get("min_avg_dollar_volume_millions", 30.0))
+    if avg_dollar_volume_m >= 500:
+        return "Very liquid"
+    if avg_dollar_volume_m >= 100:
+        return "Liquid"
+    if avg_dollar_volume_m >= minimum:
+        return "Tradable liquidity"
+    return "Thin liquidity"
+
+
+def _category_weight(category_meta: dict[str, Any], config: dict[str, Any]) -> float:
+    weights = config.get("category_weights", {}) or {}
+    categories = category_meta.get("all_categories", []) or []
+    category_weights = [float(weights.get(category, 1.0)) for category in categories]
+    weight = max(category_weights) if category_weights else 1.0
+    if bool(category_meta.get("in_core_watchlist", False)):
+        weight = max(weight, float(weights.get("core_watchlist", 1.2)))
+    return weight
+
+
+def _priority_score(technical_score: int, category_weight: float, rs_20d_vs_qqq: float | None, rs_20d_vs_smh: float | None, atr_percent: float, avg_dollar_volume_m: float, config: dict[str, Any]) -> int:
+    score = technical_score * category_weight
+    if rs_20d_vs_qqq is not None and rs_20d_vs_qqq > 0:
+        score += min(rs_20d_vs_qqq, 15) * 0.7
+    if rs_20d_vs_smh is not None and rs_20d_vs_smh > 0:
+        score += min(rs_20d_vs_smh, 15) * 0.5
+    if avg_dollar_volume_m < float(config.get("min_avg_dollar_volume_millions", 30.0)):
+        score -= 15
+    if atr_percent >= float(config.get("very_high_atr_percent", 10.0)):
+        score -= 8
+    return max(0, min(100, int(round(score))))
+
+
+def _conclusion(label: str, rsi: float, dist10: float, dist21: float, rel_vol: float, near_50d_high: bool, priority_score: int | None = None) -> str:
     if label == "Pullback Setup":
         return "Watch for bounce / constructive pullback"
     if label == "Breakout Watch":
@@ -73,6 +129,8 @@ def _conclusion(label: str, rsi: float, dist10: float, dist21: float, rel_vol: f
         return "Strong but extended; avoid chasing"
     if label == "Breakdown Risk":
         return "Caution: possible structure damage"
+    if priority_score is not None and priority_score >= 80:
+        return "High-priority strength; manual chart check"
     if near_50d_high and rsi >= 60 and dist10 <= 10:
         return "Strong trend; needs manual chart check"
     if rel_vol >= 1.3 and rsi >= 60:
@@ -83,7 +141,7 @@ def _conclusion(label: str, rsi: float, dist10: float, dist21: float, rel_vol: f
 
 
 def classify_setup(latest: pd.Series, config: dict[str, Any]) -> tuple[str, list[str], int]:
-    """Classify a ticker and return label, notes, and score."""
+    """Classify a ticker and return label, notes, and technical score."""
     close = float(latest["Close"])
     ema10 = float(latest["EMA10"])
     ema21 = float(latest["EMA21"])
@@ -191,9 +249,15 @@ def classify_setup(latest: pd.Series, config: dict[str, Any]) -> tuple[str, list
     return label, notes, max(0, min(100, int(round(score))))
 
 
-def scan_ticker(ticker: str, category_meta: dict[str, Any], data: pd.DataFrame, config: dict[str, Any]) -> ScanResult:
+def scan_ticker(
+    ticker: str,
+    category_meta: dict[str, Any],
+    data: pd.DataFrame,
+    config: dict[str, Any],
+    benchmark_data: dict[str, pd.DataFrame] | None = None,
+) -> ScanResult:
     latest = data.iloc[-1]
-    label, notes, score = classify_setup(latest, config)
+    label, notes, technical_score = classify_setup(latest, config)
 
     close = float(latest["Close"])
     ema10 = float(latest["EMA10"])
@@ -203,18 +267,41 @@ def scan_ticker(ticker: str, category_meta: dict[str, Any], data: pd.DataFrame, 
     rel_vol = float(latest.get("RelativeVolume", 0) or 0)
     dist10 = float(latest["DistanceEMA10Pct"])
     dist21 = float(latest["DistanceEMA21Pct"])
+    atr = float(latest.get("ATR14", 0) or 0)
+    atr_percent = (atr / close * 100) if close > 0 else 0
+    avg_dollar_volume_m = float((data["Close"] * data["Volume"]).rolling(20).mean().iloc[-1] / 1_000_000)
     near_50d_high = _near_high(latest, "High50", float(config["breakout_distance_to_50d_high_percent"]))
+
+    short_days = int(config.get("rs_lookback_days_short", 20))
+    long_days = int(config.get("rs_lookback_days_long", 60))
+    ticker_ret_20 = _safe_pct_return(data, short_days)
+    ticker_ret_60 = _safe_pct_return(data, long_days)
+    qqq_ret_20 = _safe_pct_return(benchmark_data.get("QQQ"), short_days) if benchmark_data and benchmark_data.get("QQQ") is not None else None
+    smh_ret_20 = _safe_pct_return(benchmark_data.get("SMH"), short_days) if benchmark_data and benchmark_data.get("SMH") is not None else None
+    qqq_ret_60 = _safe_pct_return(benchmark_data.get("QQQ"), long_days) if benchmark_data and benchmark_data.get("QQQ") is not None else None
+    smh_ret_60 = _safe_pct_return(benchmark_data.get("SMH"), long_days) if benchmark_data and benchmark_data.get("SMH") is not None else None
+    rs_20d_vs_qqq = ticker_ret_20 - qqq_ret_20 if ticker_ret_20 is not None and qqq_ret_20 is not None else None
+    rs_20d_vs_smh = ticker_ret_20 - smh_ret_20 if ticker_ret_20 is not None and smh_ret_20 is not None else None
+    rs_60d_vs_qqq = ticker_ret_60 - qqq_ret_60 if ticker_ret_60 is not None and qqq_ret_60 is not None else None
+    rs_60d_vs_smh = ticker_ret_60 - smh_ret_60 if ticker_ret_60 is not None and smh_ret_60 is not None else None
+
+    category_weight = _category_weight(category_meta, config)
+    priority_score = _priority_score(technical_score, category_weight, rs_20d_vs_qqq, rs_20d_vs_smh, atr_percent, avg_dollar_volume_m, config)
 
     row = {
         "date": data.index[-1].strftime("%Y-%m-%d"),
         "ticker": ticker,
         "setup_classification": label,
-        "score": score,
-        "conclusion": _conclusion(label, rsi, dist10, dist21, rel_vol, near_50d_high),
+        "technical_score": technical_score,
+        "priority_score": priority_score,
+        "category_weight": round(category_weight, 2),
+        "conclusion": _conclusion(label, rsi, dist10, dist21, rel_vol, near_50d_high, priority_score),
         "trend_state": _ema_state(close, ema10, ema21, ema50),
         "momentum_state": _momentum_state(rsi),
         "volume_state": _volume_state(rel_vol),
         "position_state": _position_state(dist10, dist21, near_50d_high),
+        "volatility_state": _volatility_state(atr_percent, config),
+        "liquidity_state": _liquidity_state(avg_dollar_volume_m, config),
         "in_core_watchlist": bool(category_meta["in_core_watchlist"]),
         "primary_category": category_meta["primary_category"],
         "all_categories": ", ".join(category_meta["all_categories"]),
@@ -222,6 +309,12 @@ def scan_ticker(ticker: str, category_meta: dict[str, Any], data: pd.DataFrame, 
         "percent_change": round(float(latest.get("PctChange", 0) or 0), 2),
         "rsi14": round(rsi, 1),
         "relative_volume": round(rel_vol, 2),
+        "atr_percent": round(atr_percent, 2),
+        "avg_dollar_volume_m": round(avg_dollar_volume_m, 1),
+        "rs_20d_vs_qqq": round(rs_20d_vs_qqq, 2) if rs_20d_vs_qqq is not None else None,
+        "rs_20d_vs_smh": round(rs_20d_vs_smh, 2) if rs_20d_vs_smh is not None else None,
+        "rs_60d_vs_qqq": round(rs_60d_vs_qqq, 2) if rs_60d_vs_qqq is not None else None,
+        "rs_60d_vs_smh": round(rs_60d_vs_smh, 2) if rs_60d_vs_smh is not None else None,
         "distance_to_ema10_percent": round(dist10, 2),
         "distance_to_ema21_percent": round(dist21, 2),
         "distance_to_ema50_percent": round(float(latest["DistanceEMA50Pct"]), 2),
@@ -229,10 +322,10 @@ def scan_ticker(ticker: str, category_meta: dict[str, Any], data: pd.DataFrame, 
         "above_ema21": close > ema21,
         "above_ema50": close > ema50,
         "near_50d_high": near_50d_high,
-        "atr14": round(float(latest.get("ATR14", 0) or 0), 2),
         "notes": " | ".join(notes),
         # Raw fields kept at the end for debugging/backtesting.
         "volume": int(latest["Volume"]),
+        "atr14": round(atr, 2),
         "ema10": round(ema10, 2),
         "ema21": round(ema21, 2),
         "ema50": round(ema50, 2),
