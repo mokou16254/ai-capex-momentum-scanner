@@ -17,8 +17,19 @@ STATUS_EMOJI = {
 
 
 def print_header(title: str) -> None:
-    line = "=" * 78
+    line = "=" * 100
     print(f"\n{line}\n{title}\n{line}")
+
+
+def load_benchmarks() -> dict[str, object]:
+    benchmarks = {}
+    for ticker in ["QQQ", "SMH"]:
+        try:
+            benchmarks[ticker] = download_price_data(ticker)
+            print(f"Loaded benchmark {ticker}")
+        except Exception as exc:
+            print(f"Could not load benchmark {ticker}: {exc}")
+    return benchmarks
 
 
 def main() -> None:
@@ -32,6 +43,7 @@ def main() -> None:
     min_days = int(config.get("minimum_history_days", 80))
 
     print_header(f"AI Capex Momentum Scanner | {len(ticker_map)} tickers")
+    benchmark_data = load_benchmarks()
 
     for index, (ticker, meta) in enumerate(sorted(ticker_map.items()), start=1):
         try:
@@ -45,14 +57,17 @@ def main() -> None:
                 failures.append(f"{ticker}: indicators could not be calculated")
                 print(f"[{index:>3}/{len(ticker_map)}] ⚠️  {ticker:<6} skipped: indicators unavailable")
                 continue
-            result = scan_ticker(ticker, meta, data, config)
+            result = scan_ticker(ticker, meta, data, config, benchmark_data)
             results.append(result.row)
             label = result.row["setup_classification"]
             emoji = STATUS_EMOJI.get(label, "•")
             print(
                 f"[{index:>3}/{len(ticker_map)}] {emoji} {ticker:<6} "
-                f"{label:<24} score={result.row['score']:>3} "
-                f"RSI={result.row['rsi14']:>5} RVOL={result.row['relative_volume']:>4}"
+                f"{label:<24} "
+                f"tech={result.row['technical_score']:>3} prio={result.row['priority_score']:>3} "
+                f"RS20Q={str(result.row['rs_20d_vs_qqq']):>6} "
+                f"ATR%={result.row['atr_percent']:>5} "
+                f"RVOL={result.row['relative_volume']:>4}"
             )
         except Exception as exc:  # Keep scanning the rest of the list.
             failures.append(f"{ticker}: {exc}")
@@ -69,6 +84,13 @@ def main() -> None:
             counts[label] = counts.get(label, 0) + 1
         for label in ["Pullback Setup", "Breakout Watch", "Extended / Do Not Chase", "Breakdown Risk", "Neutral"]:
             print(f"{STATUS_EMOJI.get(label, '•')} {label:<24} {counts.get(label, 0):>3}")
+        print("\nTop priority names:")
+        top_rows = sorted(results, key=lambda row: row.get("priority_score", 0), reverse=True)[:10]
+        for row in top_rows:
+            print(
+                f"  {row['ticker']:<6} prio={row['priority_score']:>3} tech={row['technical_score']:>3} "
+                f"{row['setup_classification']:<24} {row['conclusion']}"
+            )
     if failures:
         failure_path = output_dir / "failures.txt"
         failure_path.write_text("\n".join(failures), encoding="utf-8")
