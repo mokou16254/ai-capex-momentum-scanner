@@ -7,9 +7,15 @@ import yfinance as yf
 
 
 def download_price_data(ticker: str, months: int = 8) -> pd.DataFrame:
-    """Download daily OHLCV data for a ticker with yfinance."""
-    end = datetime.today()
-    start = end - timedelta(days=int(months * 31))
+    """Download daily OHLCV data for a ticker with yfinance.
+
+    yfinance's `end` date is exclusive. Use tomorrow as the end date so that
+    the latest completed daily candle is included when Yahoo has published it.
+    This matters when running the scanner after market close.
+    """
+    today = datetime.today()
+    end = today + timedelta(days=1)
+    start = today - timedelta(days=int(months * 31))
     data = yf.download(
         ticker,
         start=start.strftime("%Y-%m-%d"),
