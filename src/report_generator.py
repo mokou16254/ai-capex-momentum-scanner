@@ -13,22 +13,62 @@ CATEGORY_ORDER = [
     "Neutral",
 ]
 
+CSV_COLUMNS = [
+    "date",
+    "ticker",
+    "setup_classification",
+    "score",
+    "conclusion",
+    "trend_state",
+    "momentum_state",
+    "volume_state",
+    "position_state",
+    "in_core_watchlist",
+    "primary_category",
+    "close",
+    "percent_change",
+    "rsi14",
+    "relative_volume",
+    "distance_to_ema10_percent",
+    "distance_to_ema21_percent",
+    "above_ema10",
+    "above_ema21",
+    "above_ema50",
+    "near_50d_high",
+    "notes",
+    "all_categories",
+    "atr14",
+    "volume",
+    "ema10",
+    "ema21",
+    "ema50",
+]
+
 
 def write_csv(results: list[dict], path: str | Path) -> None:
     df = pd.DataFrame(results)
+    if df.empty:
+        df.to_csv(path, index=False)
+        return
     df.sort_values(["setup_classification", "score"], ascending=[True, False], inplace=True)
+    ordered_columns = [column for column in CSV_COLUMNS if column in df.columns]
+    extra_columns = [column for column in df.columns if column not in ordered_columns]
+    df = df[ordered_columns + extra_columns]
     df.to_csv(path, index=False)
 
 
 def _format_ticker_section(row: pd.Series) -> str:
-    core_tag = " core watchlist" if bool(row["in_core_watchlist"]) else " outside core"
+    core_tag = "core watchlist" if bool(row["in_core_watchlist"]) else "outside core"
     lines = [
         f"### {row['ticker']} - {row['setup_classification']}",
+        f"**Conclusion:** {row['conclusion']}",
         f"Score: {row['score']} ({core_tag})",
         f"Close: ${row['close']} | Change: {row['percent_change']}% | RSI: {row['rsi14']} | RVOL: {row['relative_volume']}",
+        f"Trend: {row['trend_state']}",
+        f"Momentum: {row['momentum_state']} | Volume: {row['volume_state']} | Position: {row['position_state']}",
         f"Category: {row['primary_category']} | All categories: {row['all_categories']}",
         "",
-        "Reasons:",
+        "Key notes:",
     ]
     for note in str(row["notes"]).split(" | "):
         if note.strip():
