@@ -24,13 +24,15 @@ category_weights:
   core_watchlist: 1.20
   ai_compute_semis: 1.15
   foundry_manufacturing: 1.05
-  memory_storage: 1.15
+  memory_storage: 1.18
   semi_equipment_lithography: 1.10
-  semi_materials_components: 1.15
-  optical_networking_photonics: 1.10
+  semi_materials_components: 1.18
+  optical_networking_photonics: 1.12
   ai_cloud_infra: 0.95
-  bitcoin_ai_power_infra: 1.10
-  power_grid_electrical: 1.05
-  data_center_reits_infra: 0.75
+  bitcoin_ai_power_infra: 1.12
+  power_grid_electrical: 1.08
+  data_center_reits_infra: 0.65
   cooling_hvac_construction: 0.90
-  software_data_security: 0.70
+  space_defense: 1.08
+  nuclear_uranium_power: 1.02
+  software_data_security: 0.60
