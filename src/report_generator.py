@@ -17,6 +17,8 @@ CSV_COLUMNS = [
     "date",
     "ticker",
     "setup_classification",
+    "rs_percentile_20d",
+    "rs_percentile_60d",
     "priority_score",
     "raw_priority_score",
     "priority_rank",
@@ -40,6 +42,8 @@ CSV_COLUMNS = [
     "relative_volume",
     "atr_percent",
     "avg_dollar_volume_m",
+    "return_20d",
+    "return_60d",
     "rs_20d_vs_qqq",
     "rs_20d_vs_smh",
     "rs_60d_vs_qqq",
@@ -61,18 +65,27 @@ CSV_COLUMNS = [
 
 
 def add_rank_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Add global and within-category priority ranks/percentiles."""
+    """Add global/within-category priority ranks and RS percentile ranks."""
     data = df.copy()
-    if data.empty or "raw_priority_score" not in data.columns:
+    if data.empty:
         return data
-    data["priority_rank"] = data["raw_priority_score"].rank(method="min", ascending=False).astype(int)
-    data["priority_percentile"] = (data["raw_priority_score"].rank(pct=True) * 100).round(1)
-    data["category_rank"] = data.groupby("primary_category")["raw_priority_score"].rank(method="min", ascending=False).astype(int)
-    data["category_percentile"] = (data.groupby("primary_category")["raw_priority_score"].rank(pct=True) * 100).round(1)
+
+    if "raw_priority_score" in data.columns:
+        data["priority_rank"] = data["raw_priority_score"].rank(method="min", ascending=False).astype(int)
+        data["priority_percentile"] = (data["raw_priority_score"].rank(pct=True) * 100).round(1)
+        data["category_rank"] = data.groupby("primary_category")["raw_priority_score"].rank(method="min", ascending=False).astype(int)
+        data["category_percentile"] = (data.groupby("primary_category")["raw_priority_score"].rank(pct=True) * 100).round(1)
+
+    if "return_20d" in data.columns:
+        data["rs_percentile_20d"] = (data["return_20d"].rank(pct=True) * 100).round(1)
+    if "return_60d" in data.columns:
+        data["rs_percentile_60d"] = (data["return_60d"].rank(pct=True) * 100).round(1)
     return data
 
 
 def _sort_key(df: pd.DataFrame) -> list[str]:
+    if "rs_percentile_20d" in df.columns and "raw_priority_score" in df.columns:
+        return ["setup_classification", "rs_percentile_20d", "raw_priority_score"]
     if "raw_priority_score" in df.columns:
         return ["setup_classification", "raw_priority_score"]
     if "priority_score" in df.columns:
@@ -117,9 +130,11 @@ def _format_ticker_section(row: pd.Series) -> str:
     lines = [
         f"### {row['ticker']} - {row['setup_classification']}",
         f"**Conclusion:** {row['conclusion']}",
+        f"RS20P: {row.get('rs_percentile_20d', 'N/A')} | RS60P: {row.get('rs_percentile_60d', 'N/A')}",
         f"Priority: {priority} raw={raw_priority} rank={rank} | Category rank: {category_rank} ({core_tag})",
         f"Technical score: {technical}",
         f"Close: ${row['close']} | Change: {row['percent_change']}% | RSI: {row['rsi14']} | RVOL: {row['relative_volume']}",
+        f"20d return: {row.get('return_20d', 'N/A')}% | 60d return: {row.get('return_60d', 'N/A')}%",
         f"RS 20d vs QQQ: {row.get('rs_20d_vs_qqq', 'N/A')} | RS 20d vs SMH: {row.get('rs_20d_vs_smh', 'N/A')} | ATR%: {row.get('atr_percent', 'N/A')}",
         f"Trend: {row['trend_state']}",
         f"Momentum: {row['momentum_state']} | Volume: {row['volume_state']} | Position: {row['position_state']}",
@@ -152,6 +167,13 @@ def write_markdown_report(results: list[dict], path: str | Path) -> None:
         "This report is a screening aid only. It does not place trades and is not financial advice.",
         "",
     ]
+
+    rs_leaders = df[(df.get("rs_percentile_20d", 0) >= 90) | (df.get("rs_percentile_60d", 0) >= 90)]
+    if not rs_leaders.empty:
+        lines.append("## RS > 90 Leaders")
+        lines.append("")
+        for _, row in rs_leaders.sort_values(["rs_percentile_20d", score_column], ascending=[False, False]).head(20).iterrows():
+            lines.append(_format_ticker_section(row))
 
     interesting = df[(~df["in_core_watchlist"]) & (df[score_column] >= 70) & (df["setup_classification"].isin(["Pullback Setup", "Breakout Watch"]))]
     if not interesting.empty:
