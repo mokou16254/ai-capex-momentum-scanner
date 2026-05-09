@@ -317,6 +317,8 @@ def scan_ticker(
         "relative_volume": round(rel_vol, 2),
         "atr_percent": round(atr_percent, 2),
         "avg_dollar_volume_m": round(avg_dollar_volume_m, 1),
+        "return_20d": round(ticker_ret_20, 2) if ticker_ret_20 is not None else None,
+        "return_60d": round(ticker_ret_60, 2) if ticker_ret_60 is not None else None,
         "rs_20d_vs_qqq": round(rs_20d_vs_qqq, 2) if rs_20d_vs_qqq is not None else None,
         "rs_20d_vs_smh": round(rs_20d_vs_smh, 2) if rs_20d_vs_smh is not None else None,
         "rs_60d_vs_qqq": round(rs_60d_vs_qqq, 2) if rs_60d_vs_qqq is not None else None,
