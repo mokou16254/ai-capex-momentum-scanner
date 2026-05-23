@@ -59,3 +59,10 @@ category_weights:
   space_defense: 1.08
   nuclear_uranium_power: 1.02
   software_data_security: 0.60
+  physical_ai_robotics: 1.12
+  edge_ai_electronics: 1.10
+  networking_connectivity: 1.02
+  clean_energy_power: 0.95
+  cloud_software_growth: 0.85
+  crypto_fintech: 0.90
+  tradingview_import_misc: 0.80
