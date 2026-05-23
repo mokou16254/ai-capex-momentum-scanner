@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -12,18 +13,21 @@ from src.utils import ensure_output_dir, load_yaml
 
 ETF_SUFFIXES = {"ETF", "ETN", "TRUST", "FUND", "INDEX"}
 LEVERAGED_HINTS = {"2X", "3X", "ULTRA", "BEAR", "BULL", "INVERSE", "DAILY"}
+US_TICKER_RE = re.compile(r"^[A-Z]{1,5}(-[A-Z])?$")
 
 
-def _normalize_ticker(raw: object) -> str | None:
+def _normalize_ticker(raw: object, *, us_only: bool = True) -> str | None:
     ticker = str(raw).strip().upper()
     if not ticker or ticker in {"NAN", "--", "-"}:
         return None
-    # yfinance/ETF holdings may include cash, futures, or non-US suffixes.
     if ticker.startswith(("CASH", "USD", "US DOLLAR")):
         return None
     if " " in ticker or "/" in ticker:
         return None
-    return ticker.replace(".", "-")
+    ticker = ticker.replace(".", "-")
+    if us_only and not US_TICKER_RE.fullmatch(ticker):
+        return None
+    return ticker
 
 
 def _looks_like_fund(ticker: str, name: str, config: dict[str, Any]) -> bool:
@@ -50,14 +54,14 @@ def _extract_holdings_table(ticker: str) -> pd.DataFrame:
     raise ValueError(f"No holdings table available for {ticker}")
 
 
-def _row_to_holding(row: pd.Series) -> tuple[str | None, str, float]:
+def _row_to_holding(row: pd.Series, *, us_only: bool = True) -> tuple[str | None, str, float]:
     ticker = None
     name = ""
     weight = 0.0
 
     for key in ["symbol", "Symbol", "ticker", "Ticker", "index"]:
         if key in row and pd.notna(row[key]):
-            maybe = _normalize_ticker(row[key])
+            maybe = _normalize_ticker(row[key], us_only=us_only)
             if maybe:
                 ticker = maybe
                 break
@@ -82,6 +86,7 @@ def _row_to_holding(row: pd.Series) -> tuple[str | None, str, float]:
 def fetch_theme_holdings(theme_etfs: dict[str, list[str]], settings: dict[str, Any]) -> tuple[dict[str, set[str]], list[str]]:
     min_weight = float(settings.get("min_etf_weight_percent", 0.0))
     max_holdings = int(settings.get("max_holdings_per_etf", 80))
+    us_only = bool(settings.get("us_only", True))
     expanded: dict[str, set[str]] = {theme: set() for theme in theme_etfs}
     failures: list[str] = []
 
@@ -94,7 +99,7 @@ def fetch_theme_holdings(theme_etfs: dict[str, list[str]], settings: dict[str, A
                 continue
             added = 0
             for _, row in holdings.iterrows():
-                ticker, name, weight = _row_to_holding(row)
+                ticker, name, weight = _row_to_holding(row, us_only=us_only)
                 if ticker is None:
                     continue
                 if weight < min_weight:
@@ -108,17 +113,19 @@ def fetch_theme_holdings(theme_etfs: dict[str, list[str]], settings: dict[str, A
     return expanded, failures
 
 
-def merge_manual_additions(expanded: dict[str, set[str]], manual_additions: dict[str, list[str]]) -> None:
+def merge_manual_additions(expanded: dict[str, set[str]], manual_additions: dict[str, list[str]], settings: dict[str, Any]) -> None:
+    us_only = bool(settings.get("us_only", True))
     for theme, tickers in manual_additions.items():
         expanded.setdefault(theme, set())
         for ticker in tickers:
-            normalized = _normalize_ticker(ticker)
+            normalized = _normalize_ticker(ticker, us_only=us_only)
             if normalized:
                 expanded[theme].add(normalized)
 
 
-def apply_exclusions(expanded: dict[str, set[str]], exclusions: list[str]) -> None:
-    excluded = {_normalize_ticker(ticker) for ticker in exclusions}
+def apply_exclusions(expanded: dict[str, set[str]], exclusions: list[str], settings: dict[str, Any]) -> None:
+    us_only = bool(settings.get("us_only", True))
+    excluded = {_normalize_ticker(ticker, us_only=us_only) for ticker in exclusions}
     excluded.discard(None)
     for tickers in expanded.values():
         tickers.difference_update(excluded)
@@ -143,8 +150,8 @@ def main() -> None:
     output_path = settings.get("output_path", "generated_watchlist.yaml")
 
     expanded, failures = fetch_theme_holdings(theme_etfs, settings)
-    merge_manual_additions(expanded, manual_additions)
-    apply_exclusions(expanded, manual_exclusions)
+    merge_manual_additions(expanded, manual_additions, settings)
+    apply_exclusions(expanded, manual_exclusions, settings)
     write_generated_watchlist(expanded, output_path)
 
     output_dir = ensure_output_dir("output")
@@ -155,7 +162,7 @@ def main() -> None:
     pd.DataFrame(flat_rows).to_csv(output_dir / "generated_universe.csv", index=False)
 
     total = len({row["ticker"] for row in flat_rows})
-    print(f"Generated {output_path} with {total} unique tickers across {len(expanded)} themes.")
+    print(f"Generated {output_path} with {total} unique US tickers across {len(expanded)} themes.")
     print(f"Wrote {output_dir / 'generated_universe.csv'}")
     if failures:
         failure_path = output_dir / "universe_failures.txt"
