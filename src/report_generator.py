@@ -6,7 +6,8 @@ import pandas as pd
 
 
 CATEGORY_ORDER = [
-    "Pullback Setup",
+    "Pullback Trigger",
+    "Pullback Watch",
     "Breakout Watch",
     "Extended / Hold, Do Not Chase",
     "Breakdown Risk",
@@ -37,6 +38,11 @@ CSV_COLUMNS = [
     "in_core_watchlist",
     "primary_category",
     "close",
+    "suggested_stop",
+    "pullback_risk_percent",
+    "pullback_days_from_high",
+    "intraday_trigger",
+    "intraday_trigger_note",
     "percent_change",
     "rsi14",
     "relative_volume",
@@ -120,6 +126,20 @@ def write_csv(results: list[dict], path: str | Path) -> None:
     df.to_csv(path, index=False)
 
 
+def write_candidate_list(results: list[dict], path: str | Path) -> None:
+    df = pd.DataFrame(results)
+    if df.empty:
+        Path(path).write_text("", encoding="utf-8")
+        return
+    candidates = df[df["setup_classification"].isin(["Pullback Trigger", "Pullback Watch"])]
+    if candidates.empty:
+        Path(path).write_text("", encoding="utf-8")
+        return
+    candidates = candidates.sort_values("raw_priority_score", ascending=False)
+    lines = [str(ticker) for ticker in candidates["ticker"].tolist()]
+    Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def _format_ticker_section(row: pd.Series) -> str:
     core_tag = "core watchlist" if bool(row["in_core_watchlist"]) else "outside core"
     priority = row.get("priority_score", row.get("score", "N/A"))
@@ -133,7 +153,9 @@ def _format_ticker_section(row: pd.Series) -> str:
         f"RS20P: {row.get('rs_percentile_20d', 'N/A')} | RS60P: {row.get('rs_percentile_60d', 'N/A')}",
         f"Priority: {priority} raw={raw_priority} rank={rank} | Category rank: {category_rank} ({core_tag})",
         f"Technical score: {technical}",
-        f"Close: ${row['close']} | Change: {row['percent_change']}% | RSI: {row['rsi14']} | RVOL: {row['relative_volume']}",
+        f"Close: ${row['close']} | Stop: {row.get('suggested_stop', 'N/A')} | Risk: {row.get('pullback_risk_percent', 'N/A')}% | Days from high: {row.get('pullback_days_from_high', 'N/A')}",
+        f"2h trigger: {row.get('intraday_trigger', 'N/A')} | {row.get('intraday_trigger_note', 'N/A')}",
+        f"Change: {row['percent_change']}% | RSI: {row['rsi14']} | RVOL: {row['relative_volume']}",
         f"20d return: {row.get('return_20d', 'N/A')}% | 60d return: {row.get('return_60d', 'N/A')}%",
         f"RS 20d vs QQQ: {row.get('rs_20d_vs_qqq', 'N/A')} | RS 20d vs SMH: {row.get('rs_20d_vs_smh', 'N/A')} | ATR%: {row.get('atr_percent', 'N/A')}",
         f"Trend: {row['trend_state']}",
@@ -165,6 +187,7 @@ def write_markdown_report(results: list[dict], path: str | Path) -> None:
         f"Date: {report_date}",
         "",
         "This report is a screening aid only. It does not place trades and is not financial advice.",
+        "2h trigger fields are for after-hours review and should be confirmed on a live chart.",
         "",
     ]
 
@@ -175,7 +198,7 @@ def write_markdown_report(results: list[dict], path: str | Path) -> None:
         for _, row in rs_leaders.sort_values(["rs_percentile_20d", score_column], ascending=[False, False]).head(20).iterrows():
             lines.append(_format_ticker_section(row))
 
-    interesting = df[(~df["in_core_watchlist"]) & (df[score_column] >= 70) & (df["setup_classification"].isin(["Pullback Setup", "Breakout Watch"]))]
+    interesting = df[(~df["in_core_watchlist"]) & (df[score_column] >= 70) & (df["setup_classification"].isin(["Pullback Trigger", "Pullback Watch", "Breakout Watch"]))]
     if not interesting.empty:
         lines.append("## New Momentum Candidates Outside Core Watchlist")
         lines.append("")
