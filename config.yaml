@@ -11,6 +11,14 @@ relative_volume_breakout_min: 1.3
 relative_volume_breakdown_min: 1.3
 minimum_history_days: 80
 
+# Pullback-v2 filters. These make Pullback Setup closer to a JLaw-style trade:
+# strong prior trend -> controlled pullback into support -> bounce/reversal signal.
+pullback_min_20d_return_percent: 8.0
+pullback_min_60d_return_percent: 15.0
+pullback_max_relative_volume: 1.25
+pullback_support_buffer_percent: 3.0
+pullback_require_bounce_signal: true
+
 # New ranking / risk filters
 min_avg_dollar_volume_millions: 30.0
 high_atr_percent: 6.0
