@@ -10,3 +10,37 @@ rsi_extended: 75.0
 relative_volume_breakout_min: 1.3
 relative_volume_breakdown_min: 1.3
 minimum_history_days: 80
+
+# Pullback-v2 filters. These make Pullback Setup closer to a JLaw-style trade:
+# strong prior trend -> controlled pullback into support -> bounce/reversal signal.
+pullback_min_20d_return_percent: 8.0
+pullback_min_60d_return_percent: 15.0
+pullback_max_relative_volume: 1.25
+pullback_support_buffer_percent: 3.0
+pullback_require_bounce_signal: true
+
+# New ranking / risk filters
+min_avg_dollar_volume_millions: 30.0
+high_atr_percent: 6.0
+very_high_atr_percent: 10.0
+rs_lookback_days_short: 20
+rs_lookback_days_long: 60
+
+# Category weights turn technical_score into priority_score.
+# Use this to down-rank technically strong stocks that are outside the current AI capex focus.
+category_weights:
+  core_watchlist: 1.20
+  ai_compute_semis: 1.15
+  foundry_manufacturing: 1.05
+  memory_storage: 1.18
+  semi_equipment_lithography: 1.10
+  semi_materials_components: 1.18
+  optical_networking_photonics: 1.12
+  ai_cloud_infra: 0.95
+  bitcoin_ai_power_infra: 1.12
+  power_grid_electrical: 1.08
+  data_center_reits_infra: 0.65
+  cooling_hvac_construction: 0.90
+  space_defense: 1.08
+  nuclear_uranium_power: 1.02
+  software_data_security: 0.60
