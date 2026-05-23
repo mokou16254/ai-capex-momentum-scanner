@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from src.data_loader import download_price_data
+from src.data_loader import download_intraday_price_data, download_price_data
 from src.indicators import add_indicators
-from src.report_generator import write_csv, write_markdown_report
+from src.report_generator import write_candidate_list, write_csv, write_markdown_report
 from src.scanner import scan_ticker
 from src.utils import ensure_output_dir, flatten_watchlist, load_yaml
 
 
 STATUS_EMOJI = {
-    "Pullback Setup": "🟢",
+    "Pullback Trigger": "🟣",
+    "Pullback Watch": "🟢",
     "Breakout Watch": "🚀",
     "Extended / Hold, Do Not Chase": "🟠",
     "Breakdown Risk": "🔴",
@@ -16,7 +17,8 @@ STATUS_EMOJI = {
 }
 
 CATEGORY_ORDER = [
-    "Pullback Setup",
+    "Pullback Trigger",
+    "Pullback Watch",
     "Breakout Watch",
     "Extended / Hold, Do Not Chase",
     "Breakdown Risk",
@@ -49,6 +51,9 @@ def main() -> None:
     results: list[dict] = []
     failures: list[str] = []
     min_days = int(config.get("minimum_history_days", 80))
+    use_intraday = bool(config.get("use_intraday_trigger", True))
+    intraday_period = str(config.get("intraday_period", "60d"))
+    intraday_interval = str(config.get("intraday_interval", "2h"))
 
     print_header(f"AI Capex Momentum Scanner | {len(ticker_map)} tickers")
     benchmark_data = load_benchmarks()
@@ -65,7 +70,15 @@ def main() -> None:
                 failures.append(f"{ticker}: indicators could not be calculated")
                 print(f"[{index:>3}/{len(ticker_map)}] ⚠️  {ticker:<6} skipped: indicators unavailable")
                 continue
-            result = scan_ticker(ticker, meta, data, config, benchmark_data)
+
+            intraday_data = None
+            if use_intraday:
+                try:
+                    intraday_data = download_intraday_price_data(ticker, period=intraday_period, interval=intraday_interval)
+                except Exception as exc:
+                    failures.append(f"{ticker}: intraday data unavailable ({exc})")
+
+            result = scan_ticker(ticker, meta, data, config, benchmark_data, intraday_data)
             results.append(result.row)
             label = result.row["setup_classification"]
             emoji = STATUS_EMOJI.get(label, "•")
@@ -76,6 +89,8 @@ def main() -> None:
                 f"raw={result.row.get('raw_priority_score', 0):>6} "
                 f"RS20Q={str(result.row['rs_20d_vs_qqq']):>6} "
                 f"ATR%={result.row['atr_percent']:>5} "
+                f"Risk%={str(result.row.get('pullback_risk_percent')):>5} "
+                f"2h={str(result.row.get('intraday_trigger')):<5} "
                 f"RVOL={result.row['relative_volume']:>4}"
             )
         except Exception as exc:  # Keep scanning the rest of the list.
@@ -84,6 +99,7 @@ def main() -> None:
 
     write_csv(results, output_dir / "scan_results.csv")
     write_markdown_report(results, output_dir / "daily_report.md")
+    write_candidate_list(results, output_dir / "pullback_candidates.txt")
 
     print_header("Scan Summary")
     if results:
@@ -106,6 +122,7 @@ def main() -> None:
         print(f"\n⚠️  Completed with {len(failures)} failures. See {failure_path}")
     print(f"\n✅ Wrote {output_dir / 'scan_results.csv'}")
     print(f"✅ Wrote {output_dir / 'daily_report.md'}")
+    print(f"✅ Wrote {output_dir / 'pullback_candidates.txt'}")
 
 
 if __name__ == "__main__":
