@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from src.data_loader import download_intraday_price_data, download_price_data
 from src.indicators import add_indicators
 from src.report_generator import write_candidate_list, write_csv, write_markdown_report
@@ -42,9 +44,22 @@ def load_benchmarks() -> dict[str, object]:
     return benchmarks
 
 
+def load_watchlists() -> dict[str, list[str]]:
+    watchlist = load_yaml("watchlist.yaml")
+    generated_path = Path("generated_watchlist.yaml")
+    if generated_path.exists():
+        generated = load_yaml(generated_path)
+        for category, tickers in generated.items():
+            if isinstance(tickers, list):
+                watchlist.setdefault(category, [])
+                watchlist[category].extend(tickers)
+        print(f"Loaded generated universe from {generated_path}")
+    return watchlist
+
+
 def main() -> None:
     config = load_yaml("config.yaml")
-    watchlist = load_yaml("watchlist.yaml")
+    watchlist = load_watchlists()
     ticker_map = flatten_watchlist(watchlist)
     output_dir = ensure_output_dir("output")
 
