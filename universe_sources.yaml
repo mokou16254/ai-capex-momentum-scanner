@@ -1,0 +1,63 @@
+# Optional universe expansion sources.
+# Run `python build_universe.py` to fetch ETF holdings and write generated_watchlist.yaml.
+# Then run `python main.py`; the scanner will merge watchlist.yaml + generated_watchlist.yaml.
+
+settings:
+  min_etf_weight_percent: 0.0
+  max_holdings_per_etf: 80
+  exclude_etfs_and_leveraged_products: true
+  output_path: generated_watchlist.yaml
+
+theme_etfs:
+  space_defense:
+    - ARKX
+    - UFO
+    - ITA
+    - XAR
+    - PPA
+
+  physical_ai_robotics:
+    - BOTZ
+    - ROBO
+    - IRBO
+    - ARKQ
+
+  ai_compute_semis:
+    - SMH
+    - SOXX
+    - XSD
+
+  power_grid_electrical:
+    - GRID
+    - PAVE
+
+  data_center_reits_infra:
+    - VPN
+    - DTCR
+
+  software_data_security:
+    - CIBR
+    - HACK
+
+manual_additions:
+  space_defense:
+    - RKLB
+    - ASTS
+    - LUNR
+    - RDW
+    - PL
+    - BKSY
+    - SPIR
+    - SATL
+
+manual_exclusions:
+  - SPY
+  - QQQ
+  - DIA
+  - IWM
+  - TQQQ
+  - SQQQ
+  - SOXL
+  - SOXS
+  - TSLL
+  - TSLQ

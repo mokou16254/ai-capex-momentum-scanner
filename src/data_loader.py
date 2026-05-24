@@ -6,6 +6,20 @@ import pandas as pd
 import yfinance as yf
 
 
+_REQUIRED_COLUMNS = {"Open", "High", "Low", "Close", "Volume"}
+
+
+def _clean_ohlcv(data: pd.DataFrame, ticker: str) -> pd.DataFrame:
+    if data.empty:
+        raise ValueError(f"No data returned for {ticker}")
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+    missing = _REQUIRED_COLUMNS - set(data.columns)
+    if missing:
+        raise ValueError(f"Missing columns for {ticker}: {sorted(missing)}")
+    return data.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+
+
 def download_price_data(ticker: str, months: int = 8) -> pd.DataFrame:
     """Download daily OHLCV data for a ticker with yfinance.
 
@@ -24,12 +38,23 @@ def download_price_data(ticker: str, months: int = 8) -> pd.DataFrame:
         auto_adjust=False,
         threads=False,
     )
-    if data.empty:
-        raise ValueError(f"No data returned for {ticker}")
-    if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.get_level_values(0)
-    required = {"Open", "High", "Low", "Close", "Volume"}
-    missing = required - set(data.columns)
-    if missing:
-        raise ValueError(f"Missing columns for {ticker}: {sorted(missing)}")
-    return data.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+    return _clean_ohlcv(data, ticker)
+
+
+def download_intraday_price_data(ticker: str, period: str = "60d", interval: str = "2h") -> pd.DataFrame:
+    """Download recent intraday OHLCV data for after-hours review.
+
+    This is intended for rough 2h/4h pullback-trigger review after market close,
+    not for precise real-time execution. yfinance intraday data can lag and can
+    occasionally miss partial sessions.
+    """
+    data = yf.download(
+        ticker,
+        period=period,
+        interval=interval,
+        progress=False,
+        auto_adjust=False,
+        threads=False,
+        prepost=False,
+    )
+    return _clean_ohlcv(data, ticker)

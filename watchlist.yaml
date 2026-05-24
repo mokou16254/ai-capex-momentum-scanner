@@ -133,3 +133,74 @@ software_data_security:
   - PANW
   - ZS
   - OKTA
+
+physical_ai_robotics:
+  - TSLA
+  - OUST
+  - TER
+  - ADI
+  - NXPI
+  - MCHP
+  - STM
+  - SYNA
+  - SMTC
+  - AMBQ
+
+edge_ai_electronics:
+  - NVTS
+  - AMKR
+  - TTMI
+  - TSEM
+  - VECO
+  - RFIL
+  - PKE
+  - ATOM
+  - WOLF
+
+networking_connectivity:
+  - NOK
+  - CSCO
+  - BAND
+  - SATS
+  - SATG
+  - ATEX
+  - CBRS
+
+clean_energy_power:
+  - BE
+  - FCEL
+  - FLNC
+  - ENPH
+  - SEDG
+  - BW
+  - CVX
+
+cloud_software_growth:
+  - DOCN
+  - NOW
+  - TWLO
+  - VRNS
+  - P
+
+crypto_fintech:
+  - COIN
+  - CRCL
+  - DXYZ
+  - VOYG
+  - DGXX
+  - FTK
+
+tradingview_import_misc:
+  - PENG
+  - FLKR
+  - FLY
+  - AAPL
+  - BTSG
+  - FPS
+  - FTC
+  - IFNNY
+  - MDA
+  - NASA
+  - PBI
+  - VCX
+  - VELO
