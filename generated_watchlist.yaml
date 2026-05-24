@@ -24,7 +24,6 @@ generated_space_defense:
 - LHX
 - LMT
 - LUNR
-- MDA-TO
 - NOC
 - PH
 - PL
@@ -41,18 +40,6 @@ generated_space_defense:
 - TXT
 - VSAT
 generated_physical_ai_robotics:
-- 098460-KQ
-- 1590-TW
-- 2049-TW
-- 2308-TW
-- 300124-SZ
-- 6273-T
-- 6324-T
-- 6383-T
-- 6861-T
-- 6954-T
-- 9660-HK
-- ABBN-SW
 - ADSK
 - AMBA
 - AMD
@@ -64,7 +51,6 @@ generated_physical_ai_robotics:
 - DE
 - GOOG
 - GOOGL
-- IFX-DE
 - ISRG
 - KTOS
 - NVDA
@@ -98,10 +84,8 @@ generated_ai_compute_semis:
 - TSM
 - TXN
 generated_power_grid_electrical:
-- ABBN-SW
 - CSX
 - DE
-- EOAN-DE
 - ETN
 - HUBB
 - HWM
@@ -110,22 +94,17 @@ generated_power_grid_electrical:
 - NSC
 - NUE
 - NVT
-- PRY-MI
 - PWR
 - SRE
-- SU-PA
 - TT
 - UNP
 generated_data_center_reits_infra:
-- 0788-HK
-- AJBU-SI
 - AMT
 - APLD
 - CCI
 - DBRG
 - EQIX
 - GDS
-- NXT-AX
 - SBAC
 - SMCI
 - UNIT
