@@ -61,8 +61,8 @@ def main() -> None:
     parser.add_argument("--report", default="output/kova_visual_report.md", help="Markdown report output path")
     parser.add_argument("--debug-crops", action="store_true", help="Save overlay/crop images to help calibrate panel coordinates")
     parser.add_argument("--debug-dir", default="output/debug_crops", help="Directory for debug crop images")
-    parser.add_argument("--volume-box", default="0.025,0.575,0.835,0.705", help="Volume crop box as left,top,right,bottom ratios")
-    parser.add_argument("--momentum-box", default="0.025,0.705,0.835,0.815", help="Momentum crop box as left,top,right,bottom ratios")
+    parser.add_argument("--volume-box", default="0.025,0.620,0.705,0.770", help="Volume crop box as left,top,right,bottom ratios")
+    parser.add_argument("--momentum-box", default="0.025,0.770,0.705,0.900", help="Momentum crop box as left,top,right,bottom ratios")
     args = parser.parse_args()
 
     volume_box = parse_box(args.volume_box)
