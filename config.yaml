@@ -18,6 +18,14 @@ very_high_atr_percent: 10.0
 rs_lookback_days_short: 20
 rs_lookback_days_long: 60
 
+# Theme rotation settings.
+# These aggregate ticker-level scan results into group-level leadership / inflow signals.
+theme_rotation_lookback_days: 5
+theme_min_members: 3
+theme_top_n: 8
+theme_rotation_exclude_categories:
+  - core_watchlist
+
 # Category weights turn technical_score into priority_score.
 # Use this to down-rank technically strong stocks that are outside the current AI capex focus.
 category_weights:
