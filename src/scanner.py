@@ -107,7 +107,15 @@ def _category_weight(category_meta: dict[str, Any], config: dict[str, Any]) -> f
     return weight
 
 
-def _priority_score_raw(technical_score: int, category_weight: float, rs_20d_vs_qqq: float | None, rs_20d_vs_smh: float | None, atr_percent: float, avg_dollar_volume_m: float, config: dict[str, Any]) -> float:
+def _priority_score_raw(
+    technical_score: int,
+    category_weight: float,
+    rs_20d_vs_qqq: float | None,
+    rs_20d_vs_smh: float | None,
+    atr_percent: float,
+    avg_dollar_volume_m: float,
+    config: dict[str, Any],
+) -> float:
     score = technical_score * category_weight
     if rs_20d_vs_qqq is not None and rs_20d_vs_qqq > 0:
         score += min(rs_20d_vs_qqq, 15) * 0.7
@@ -124,7 +132,15 @@ def _priority_score(raw_score: float) -> int:
     return max(0, min(100, int(round(raw_score))))
 
 
-def _conclusion(label: str, rsi: float, dist10: float, dist21: float, rel_vol: float, near_50d_high: bool, priority_score: int | None = None) -> str:
+def _conclusion(
+    label: str,
+    rsi: float,
+    dist10: float,
+    dist21: float,
+    rel_vol: float,
+    near_50d_high: bool,
+    priority_score: int | None = None,
+) -> str:
     if label == "Pullback Setup":
         return "Watch for bounce / constructive pullback"
     if label == "Breakout Watch":
@@ -276,14 +292,23 @@ def scan_ticker(
     avg_dollar_volume_m = float((data["Close"] * data["Volume"]).rolling(20).mean().iloc[-1] / 1_000_000)
     near_50d_high = _near_high(latest, "High50", float(config["breakout_distance_to_50d_high_percent"]))
 
+    rotation_days = int(config.get("theme_rotation_lookback_days", 5))
     short_days = int(config.get("rs_lookback_days_short", 20))
     long_days = int(config.get("rs_lookback_days_long", 60))
+
+    ticker_ret_5 = _safe_pct_return(data, rotation_days)
     ticker_ret_20 = _safe_pct_return(data, short_days)
     ticker_ret_60 = _safe_pct_return(data, long_days)
+
+    qqq_ret_5 = _safe_pct_return(benchmark_data.get("QQQ"), rotation_days) if benchmark_data and benchmark_data.get("QQQ") is not None else None
+    smh_ret_5 = _safe_pct_return(benchmark_data.get("SMH"), rotation_days) if benchmark_data and benchmark_data.get("SMH") is not None else None
     qqq_ret_20 = _safe_pct_return(benchmark_data.get("QQQ"), short_days) if benchmark_data and benchmark_data.get("QQQ") is not None else None
     smh_ret_20 = _safe_pct_return(benchmark_data.get("SMH"), short_days) if benchmark_data and benchmark_data.get("SMH") is not None else None
     qqq_ret_60 = _safe_pct_return(benchmark_data.get("QQQ"), long_days) if benchmark_data and benchmark_data.get("QQQ") is not None else None
     smh_ret_60 = _safe_pct_return(benchmark_data.get("SMH"), long_days) if benchmark_data and benchmark_data.get("SMH") is not None else None
+
+    rs_5d_vs_qqq = ticker_ret_5 - qqq_ret_5 if ticker_ret_5 is not None and qqq_ret_5 is not None else None
+    rs_5d_vs_smh = ticker_ret_5 - smh_ret_5 if ticker_ret_5 is not None and smh_ret_5 is not None else None
     rs_20d_vs_qqq = ticker_ret_20 - qqq_ret_20 if ticker_ret_20 is not None and qqq_ret_20 is not None else None
     rs_20d_vs_smh = ticker_ret_20 - smh_ret_20 if ticker_ret_20 is not None and smh_ret_20 is not None else None
     rs_60d_vs_qqq = ticker_ret_60 - qqq_ret_60 if ticker_ret_60 is not None and qqq_ret_60 is not None else None
@@ -317,8 +342,11 @@ def scan_ticker(
         "relative_volume": round(rel_vol, 2),
         "atr_percent": round(atr_percent, 2),
         "avg_dollar_volume_m": round(avg_dollar_volume_m, 1),
+        "return_5d": round(ticker_ret_5, 2) if ticker_ret_5 is not None else None,
         "return_20d": round(ticker_ret_20, 2) if ticker_ret_20 is not None else None,
         "return_60d": round(ticker_ret_60, 2) if ticker_ret_60 is not None else None,
+        "rs_5d_vs_qqq": round(rs_5d_vs_qqq, 2) if rs_5d_vs_qqq is not None else None,
+        "rs_5d_vs_smh": round(rs_5d_vs_smh, 2) if rs_5d_vs_smh is not None else None,
         "rs_20d_vs_qqq": round(rs_20d_vs_qqq, 2) if rs_20d_vs_qqq is not None else None,
         "rs_20d_vs_smh": round(rs_20d_vs_smh, 2) if rs_20d_vs_smh is not None else None,
         "rs_60d_vs_qqq": round(rs_60d_vs_qqq, 2) if rs_60d_vs_qqq is not None else None,
