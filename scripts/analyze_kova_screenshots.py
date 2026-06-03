@@ -10,7 +10,7 @@ if str(REPO_ROOT) not in sys.path:
 
 import pandas as pd
 
-from src.kova_visual import analyze_kova_screenshot, parse_box, save_debug_crops
+import src.kova_visual as kova_visual
 
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
@@ -63,16 +63,33 @@ def main() -> None:
     parser.add_argument("--debug-dir", default="output/debug_crops", help="Directory for debug crop images")
     parser.add_argument("--volume-box", default="0.025,0.620,0.705,0.770", help="Volume crop box as left,top,right,bottom ratios")
     parser.add_argument("--momentum-box", default="0.025,0.770,0.705,0.900", help="Momentum crop box as left,top,right,bottom ratios")
+    parser.add_argument("--latest-x-ratio", type=float, default=None, help="Override fixed latest slot x ratio, e.g. 0.8185")
+    parser.add_argument("--bar-spacing-ratio", type=float, default=None, help="Override fixed bar spacing ratio, e.g. 0.0104")
+    parser.add_argument("--slot-radius", type=int, default=None, help="Override slot sampling radius in pixels, e.g. 3")
     args = parser.parse_args()
 
-    volume_box = parse_box(args.volume_box)
-    momentum_box = parse_box(args.momentum_box)
+    if args.latest_x_ratio is not None:
+        kova_visual.DEFAULT_LATEST_X_RATIO = args.latest_x_ratio
+    if args.bar_spacing_ratio is not None:
+        kova_visual.DEFAULT_BAR_SPACING_RATIO = args.bar_spacing_ratio
+    if args.slot_radius is not None:
+        kova_visual.DEFAULT_SLOT_RADIUS = args.slot_radius
+
+    volume_box = kova_visual.parse_box(args.volume_box)
+    momentum_box = kova_visual.parse_box(args.momentum_box)
     screenshot_dir = Path(args.screenshots)
     output_path = Path(args.output)
     report_path = Path(args.report)
     debug_dir = Path(args.debug_dir)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.parent.mkdir(parents=True, exist_ok=True)
+
+    print(
+        "Kova calibration: "
+        f"latest_x_ratio={kova_visual.DEFAULT_LATEST_X_RATIO}, "
+        f"bar_spacing_ratio={kova_visual.DEFAULT_BAR_SPACING_RATIO}, "
+        f"slot_radius={kova_visual.DEFAULT_SLOT_RADIUS}"
+    )
 
     if not screenshot_dir.exists():
         raise FileNotFoundError(f"Screenshot directory does not exist: {screenshot_dir}")
@@ -84,8 +101,8 @@ def main() -> None:
     for index, image_path in enumerate(images, start=1):
         try:
             if args.debug_crops:
-                save_debug_crops(image_path, debug_dir, volume_box=volume_box, momentum_box=momentum_box)
-            result = analyze_kova_screenshot(image_path, volume_box=volume_box, momentum_box=momentum_box)
+                kova_visual.save_debug_crops(image_path, debug_dir, volume_box=volume_box, momentum_box=momentum_box)
+            result = kova_visual.analyze_kova_screenshot(image_path, volume_box=volume_box, momentum_box=momentum_box)
             rows.append(result.to_dict())
             print(
                 f"[{index:>3}/{len(images)}] {result.ticker:<8} "
