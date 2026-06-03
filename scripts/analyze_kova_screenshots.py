@@ -10,7 +10,7 @@ if str(REPO_ROOT) not in sys.path:
 
 import pandas as pd
 
-from src.kova_visual import analyze_kova_screenshot
+from src.kova_visual import analyze_kova_screenshot, parse_box, save_debug_crops
 
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
@@ -59,11 +59,18 @@ def main() -> None:
     parser.add_argument("--screenshots", default="screenshots", help="Directory containing screenshots named like TICKER.png")
     parser.add_argument("--output", default="output/kova_visual_scan.csv", help="CSV output path")
     parser.add_argument("--report", default="output/kova_visual_report.md", help="Markdown report output path")
+    parser.add_argument("--debug-crops", action="store_true", help="Save overlay/crop images to help calibrate panel coordinates")
+    parser.add_argument("--debug-dir", default="output/debug_crops", help="Directory for debug crop images")
+    parser.add_argument("--volume-box", default="0.025,0.575,0.835,0.705", help="Volume crop box as left,top,right,bottom ratios")
+    parser.add_argument("--momentum-box", default="0.025,0.705,0.835,0.815", help="Momentum crop box as left,top,right,bottom ratios")
     args = parser.parse_args()
 
+    volume_box = parse_box(args.volume_box)
+    momentum_box = parse_box(args.momentum_box)
     screenshot_dir = Path(args.screenshots)
     output_path = Path(args.output)
     report_path = Path(args.report)
+    debug_dir = Path(args.debug_dir)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -76,7 +83,9 @@ def main() -> None:
 
     for index, image_path in enumerate(images, start=1):
         try:
-            result = analyze_kova_screenshot(image_path)
+            if args.debug_crops:
+                save_debug_crops(image_path, debug_dir, volume_box=volume_box, momentum_box=momentum_box)
+            result = analyze_kova_screenshot(image_path, volume_box=volume_box, momentum_box=momentum_box)
             rows.append(result.to_dict())
             print(
                 f"[{index:>3}/{len(images)}] {result.ticker:<8} "
@@ -100,6 +109,8 @@ def main() -> None:
         failure_path.write_text("\n".join(failures), encoding="utf-8")
         print(f"\n⚠️ Completed with {len(failures)} failures. See {failure_path}")
 
+    if args.debug_crops:
+        print(f"✅ Wrote debug crop images to {debug_dir}")
     print(f"\n✅ Wrote {output_path}")
     print(f"✅ Wrote {report_path}")
 
