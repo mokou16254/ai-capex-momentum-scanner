@@ -72,8 +72,8 @@ def _crop_by_ratio(image: Image.Image, box: tuple[float, float, float, float]) -
 def save_debug_crops(
     image_path: str | Path,
     output_dir: str | Path,
-    volume_box: tuple[float, float, float, float] = (0.025, 0.575, 0.835, 0.705),
-    momentum_box: tuple[float, float, float, float] = (0.025, 0.705, 0.835, 0.815),
+    volume_box: tuple[float, float, float, float] = (0.025, 0.620, 0.705, 0.770),
+    momentum_box: tuple[float, float, float, float] = (0.025, 0.770, 0.705, 0.900),
 ) -> None:
     """Save crop calibration images for one screenshot.
 
@@ -108,12 +108,7 @@ def _rgb_array(image: Image.Image) -> np.ndarray:
 
 
 def _color_mask(rgb: np.ndarray, color: str) -> np.ndarray:
-    """Return a rough color mask for TradingView dark-theme screenshots.
-
-    The thresholds intentionally avoid OCR/template assumptions. They target the
-    saturated bar colors in Kova's panels, so the script is robust to small
-    brightness changes but expects the TradingView theme/layout to stay fixed.
-    """
+    """Return a rough color mask for TradingView dark-theme screenshots."""
     r = rgb[:, :, 0].astype(np.int16)
     g = rgb[:, :, 1].astype(np.int16)
     b = rgb[:, :, 2].astype(np.int16)
@@ -167,7 +162,6 @@ def _dedupe_bars(bars: Iterable[DetectedBar], max_distance: int = 4) -> list[Det
     deduped: list[DetectedBar] = []
     for bar in sorted_bars:
         if deduped and abs(bar.x_center - deduped[-1].x_center) <= max_distance:
-            # Keep the stronger color detection.
             if bar.pixel_count > deduped[-1].pixel_count:
                 deduped[-1] = bar
         else:
@@ -195,8 +189,33 @@ def _detect_colored_bars(crop: Image.Image, colors: list[str], min_col_pixel_rat
     return _dedupe_bars(bars)
 
 
-def _rightmost(bars: list[DetectedBar], n: int) -> list[DetectedBar]:
-    return sorted(bars, key=lambda bar: bar.x_center)[-n:]
+def _estimate_bar_spacing(bars: list[DetectedBar]) -> float:
+    """Estimate x-spacing between chart bars from detected colored bars."""
+    if len(bars) < 2:
+        return 8.0
+    xs = np.array(sorted({round(bar.x_center, 1) for bar in bars}), dtype=float)
+    if len(xs) < 2:
+        return 8.0
+    diffs = np.diff(xs)
+    diffs = diffs[(diffs >= 2) & (diffs <= 40)]
+    if diffs.size == 0:
+        return 8.0
+    return float(np.median(diffs))
+
+
+def _recent_by_x_window(bars: list[DetectedBar], periods: int, spacing: float | None = None) -> list[DetectedBar]:
+    """Return bars inside the recent x-axis window.
+
+    This approximates the most recent N chart bars by x-position instead of
+    selecting the rightmost N detected colored bars. That matters because not
+    every chart bar is detected as a saturated Kova color.
+    """
+    if not bars:
+        return []
+    spacing = spacing or _estimate_bar_spacing(bars)
+    latest_x = max(bar.x_center for bar in bars)
+    left_edge = latest_x - periods * spacing
+    return [bar for bar in bars if bar.x_center >= left_edge]
 
 
 def _count_color(bars: list[DetectedBar], color: str) -> int:
@@ -209,12 +228,14 @@ def _latest_color(bars: list[DetectedBar]) -> str:
     return max(bars, key=lambda bar: bar.x_center).color
 
 
-def _latest_age(bars: list[DetectedBar], color: str) -> int | None:
-    ordered = sorted(bars, key=lambda bar: bar.x_center)
-    color_positions = [index for index, bar in enumerate(ordered) if bar.color == color]
-    if not color_positions:
+def _latest_age(bars: list[DetectedBar], color: str, spacing: float | None = None) -> int | None:
+    color_bars = [bar for bar in bars if bar.color == color]
+    if not bars or not color_bars:
         return None
-    return len(ordered) - 1 - max(color_positions)
+    spacing = spacing or _estimate_bar_spacing(bars)
+    latest_x = max(bar.x_center for bar in bars)
+    latest_color_x = max(bar.x_center for bar in color_bars)
+    return max(0, int(round((latest_x - latest_color_x) / max(spacing, 1))))
 
 
 def _visual_signal_score(
@@ -256,16 +277,10 @@ def _visual_signal_label(score: int, purple_10: int, blue_momentum_10: int, red_
 def analyze_kova_screenshot(
     image_path: str | Path,
     ticker: str | None = None,
-    volume_box: tuple[float, float, float, float] = (0.025, 0.575, 0.835, 0.705),
-    momentum_box: tuple[float, float, float, float] = (0.025, 0.705, 0.835, 0.815),
+    volume_box: tuple[float, float, float, float] = (0.025, 0.620, 0.705, 0.770),
+    momentum_box: tuple[float, float, float, float] = (0.025, 0.770, 0.705, 0.900),
 ) -> VisualScanResult:
-    """Analyze one TradingView screenshot using fixed-layout crop ratios.
-
-    The default crop boxes are calibrated for a 2048x981 dark-theme TradingView
-    layout with the watchlist open on the right and Kova panels below price.
-    If the layout changes, adjust volume_box / momentum_box rather than the
-    detection logic.
-    """
+    """Analyze one TradingView screenshot using fixed-layout crop ratios."""
     path = Path(image_path)
     image = Image.open(path).convert("RGB")
     inferred_ticker = ticker or path.stem.upper()
@@ -276,10 +291,12 @@ def analyze_kova_screenshot(
     volume_bars = _detect_colored_bars(volume_crop, ["purple", "cyan", "red", "green"], min_col_pixel_ratio=0.05)
     momentum_bars = _detect_colored_bars(momentum_crop, ["blue", "red"], min_col_pixel_ratio=0.04)
 
-    volume_last_10 = _rightmost(volume_bars, 10)
-    volume_last_20 = _rightmost(volume_bars, 20)
-    momentum_last_10 = _rightmost(momentum_bars, 10)
-    momentum_last_20 = _rightmost(momentum_bars, 20)
+    volume_spacing = _estimate_bar_spacing(volume_bars)
+    momentum_spacing = _estimate_bar_spacing(momentum_bars)
+    volume_last_10 = _recent_by_x_window(volume_bars, 10, volume_spacing)
+    volume_last_20 = _recent_by_x_window(volume_bars, 20, volume_spacing)
+    momentum_last_10 = _recent_by_x_window(momentum_bars, 10, momentum_spacing)
+    momentum_last_20 = _recent_by_x_window(momentum_bars, 20, momentum_spacing)
 
     purple_10 = _count_color(volume_last_10, "purple")
     purple_20 = _count_color(volume_last_20, "purple")
@@ -289,7 +306,7 @@ def analyze_kova_screenshot(
     red_20 = _count_color(volume_last_20, "red")
     green_10 = _count_color(volume_last_10, "green")
     green_20 = _count_color(volume_last_20, "green")
-    latest_purple_age = _latest_age(volume_bars, "purple")
+    latest_purple_age = _latest_age(volume_bars, "purple", volume_spacing)
 
     blue_momentum_10 = _count_color(momentum_last_10, "blue")
     blue_momentum_20 = _count_color(momentum_last_20, "blue")
