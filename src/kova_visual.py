@@ -13,7 +13,7 @@ DEFAULT_MOMENTUM_BOX = (0.025, 0.770, 0.705, 0.900)
 
 # Calibrated from the fixed TradingView layout/crop.
 # The slots are intentionally fixed rather than inferred from detected colors.
-DEFAULT_LATEST_X_RATIO = 0.825
+DEFAULT_LATEST_X_RATIO = 0.815
 DEFAULT_BAR_SPACING_RATIO = 0.0104
 DEFAULT_SLOT_RADIUS = 4
 RECENT_SLOT_COUNT = 60
