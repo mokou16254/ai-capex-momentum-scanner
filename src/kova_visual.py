@@ -279,9 +279,11 @@ def _draw_slot_debug(
         debug.save(output_path)
         return
 
-    left_10 = latest_x - 9 * spacing - DEFAULT_SLOT_RADIUS
-    left_20 = latest_x - 19 * spacing - DEFAULT_SLOT_RADIUS
-    right_edge = latest_x + DEFAULT_SLOT_RADIUS
+    # The debug rectangles should show complete bar slots, not just the center lines.
+    # Counting still uses slots[:10] / slots[:20]; this is only visual padding.
+    left_10 = latest_x - 9 * spacing - spacing / 2
+    left_20 = latest_x - 19 * spacing - spacing / 2
+    right_edge = latest_x + spacing / 2
 
     draw.rectangle((max(0, left_20), 0, min(width, right_edge), height), outline=(255, 165, 0, 230), fill=(255, 165, 0, 25), width=2)
     draw.rectangle((max(0, left_10), 0, min(width, right_edge), height), outline=(255, 255, 0, 255), fill=(255, 255, 0, 45), width=3)
