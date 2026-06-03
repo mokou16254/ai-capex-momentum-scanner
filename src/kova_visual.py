@@ -10,7 +10,11 @@ from PIL import Image, ImageDraw
 
 DEFAULT_VOLUME_BOX = (0.025, 0.620, 0.705, 0.770)
 DEFAULT_MOMENTUM_BOX = (0.025, 0.770, 0.705, 0.900)
-DEFAULT_BAR_SPACING = 14.5
+
+# Calibrated from the fixed TradingView layout/crop.
+# The slots are intentionally fixed rather than inferred from detected colors.
+DEFAULT_LATEST_X_RATIO = 0.825
+DEFAULT_BAR_SPACING_RATIO = 0.0104
 DEFAULT_SLOT_RADIUS = 4
 RECENT_SLOT_COUNT = 60
 
@@ -104,17 +108,6 @@ def _color_mask(rgb: np.ndarray, color: str) -> np.ndarray:
     raise ValueError(f"Unknown color: {color}")
 
 
-def _active_bar_mask(rgb: np.ndarray) -> np.ndarray:
-    """Loose mask for any visible histogram/volume bar on a dark TradingView background."""
-    r = rgb[:, :, 0].astype(np.int16)
-    g = rgb[:, :, 1].astype(np.int16)
-    b = rgb[:, :, 2].astype(np.int16)
-    brightness = np.maximum.reduce([r, g, b])
-    saturation = np.maximum.reduce([r, g, b]) - np.minimum.reduce([r, g, b])
-    # Keep colored bars, reject most dark background/grid/text.
-    return (brightness >= 45) & (saturation >= 18)
-
-
 def _group_columns(mask: np.ndarray, min_col_pixels: int, min_width: int = 2, merge_gap: int = 2) -> list[tuple[int, int, int]]:
     col_counts = mask.sum(axis=0)
     active = np.where(col_counts >= min_col_pixels)[0]
@@ -166,35 +159,11 @@ def _detect_colored_bars(crop: Image.Image, colors: list[str], min_col_pixel_rat
     return _dedupe_bars(bars)
 
 
-def _detect_any_bars(crop: Image.Image) -> list[DetectedBar]:
-    rgb = _rgb_array(crop)
-    height = rgb.shape[0]
-    mask = _active_bar_mask(rgb)
-    min_col_pixels = max(3, int(height * 0.08))
-    bars = [DetectedBar(x_center=(s + e - 1) / 2, width=e - s, color="any", pixel_count=p) for s, e, p in _group_columns(mask, min_col_pixels=min_col_pixels, min_width=2, merge_gap=1)]
-    return _dedupe_bars(bars, max_distance=3)
-
-
-def _estimate_bar_spacing_from_any_bars(any_bars: list[DetectedBar]) -> float:
-    """Estimate the fixed TradingView bar spacing from all visible bars, not only special colors."""
-    if len(any_bars) < 4:
-        return DEFAULT_BAR_SPACING
-    xs = np.array(sorted(bar.x_center for bar in any_bars), dtype=float)
-    diffs = np.diff(xs)
-    diffs = diffs[(diffs >= 6) & (diffs <= 24)]
-    if diffs.size == 0:
-        return DEFAULT_BAR_SPACING
-    return float(np.median(diffs))
-
-
-def _latest_x_from_any_bars(any_bars: list[DetectedBar], crop_width: int, spacing: float) -> float:
-    """Use the rightmost visible bar as the latest slot anchor.
-
-    In screenshots with future empty space on the right, the rightmost colored bar is the last completed bar.
-    """
-    if any_bars:
-        return max(bar.x_center for bar in any_bars)
-    return crop_width - spacing
+def _fixed_slot_geometry(crop: Image.Image) -> tuple[float, float]:
+    """Return fixed latest_x and bar spacing for the calibrated TradingView layout."""
+    latest_x = crop.width * DEFAULT_LATEST_X_RATIO
+    spacing = crop.width * DEFAULT_BAR_SPACING_RATIO
+    return latest_x, spacing
 
 
 def _sample_slot_color(rgb: np.ndarray, x_center: float, colors: list[str], radius: int = DEFAULT_SLOT_RADIUS) -> tuple[str, int]:
@@ -326,7 +295,7 @@ def _draw_slot_debug(
         "none": (170, 170, 170, 120),
     }
 
-    # Thin lines for raw colored detections, useful for threshold debugging.
+    # Thin lines for raw colored detections, useful for color threshold debugging.
     for bar in color_bars:
         raw_color = color_map.get(bar.color, (220, 220, 220, 255))
         draw.line((bar.x_center, 0, bar.x_center, height), fill=raw_color, width=1)
@@ -341,22 +310,20 @@ def _draw_slot_debug(
 
     draw.line((latest_x, 0, latest_x, height), fill=(255, 255, 255, 255), width=3)
     summary = (
-        f"{panel_label} | slot spacing={spacing:.1f} | slots={len(slots)} | "
+        f"{panel_label} | fixed spacing={spacing:.1f} | fixed latest_x={latest_x:.1f} | "
         f"p10={_count_slot_color(slots, 'purple', 10)} p20={_count_slot_color(slots, 'purple', 20)} | "
         f"blue10={_count_slot_color(slots, 'blue', 10)} red10={_count_slot_color(slots, 'red', 10)}"
     )
-    draw.rectangle((0, height - 24, min(width, 980), height), fill=(0, 0, 0, 180))
+    draw.rectangle((0, height - 24, min(width, 1050), height), fill=(0, 0, 0, 180))
     draw.text((8, height - 20), summary, fill=(255, 255, 255, 255))
     debug.save(output_path)
 
 
-def _panel_state(crop: Image.Image, colors: list[str]) -> tuple[list[DetectedBar], list[DetectedBar], list[SlotSample], float, float]:
+def _panel_state(crop: Image.Image, colors: list[str]) -> tuple[list[DetectedBar], list[SlotSample], float, float]:
     color_bars = _detect_colored_bars(crop, colors, min_col_pixel_ratio=0.05)
-    any_bars = _detect_any_bars(crop)
-    spacing = _estimate_bar_spacing_from_any_bars(any_bars)
-    latest_x = _latest_x_from_any_bars(any_bars, crop.width, spacing)
+    latest_x, spacing = _fixed_slot_geometry(crop)
     slots = _sample_slots(crop, colors, latest_x, spacing)
-    return color_bars, any_bars, slots, spacing, latest_x
+    return color_bars, slots, spacing, latest_x
 
 
 def save_debug_crops(
@@ -389,8 +356,8 @@ def save_debug_crops(
     momentum_crop.save(out_dir / f"{stem}_momentum_crop.png")
 
     if include_windows:
-        volume_color_bars, _, volume_slots, volume_spacing, volume_latest_x = _panel_state(volume_crop, ["purple", "cyan", "red", "green"])
-        momentum_color_bars, _, momentum_slots, momentum_spacing, momentum_latest_x = _panel_state(momentum_crop, ["blue", "red"])
+        volume_color_bars, volume_slots, volume_spacing, volume_latest_x = _panel_state(volume_crop, ["purple", "cyan", "red", "green"])
+        momentum_color_bars, momentum_slots, momentum_spacing, momentum_latest_x = _panel_state(momentum_crop, ["blue", "red"])
         _draw_slot_debug(volume_crop, volume_color_bars, volume_slots, out_dir / f"{stem}_volume_debug.png", "volume", volume_spacing, volume_latest_x)
         _draw_slot_debug(momentum_crop, momentum_color_bars, momentum_slots, out_dir / f"{stem}_momentum_debug.png", "momentum", momentum_spacing, momentum_latest_x)
 
@@ -408,8 +375,8 @@ def analyze_kova_screenshot(
     volume_crop = _crop_by_ratio(image, volume_box)
     momentum_crop = _crop_by_ratio(image, momentum_box)
 
-    volume_color_bars, _, volume_slots, _, _ = _panel_state(volume_crop, ["purple", "cyan", "red", "green"])
-    momentum_color_bars, _, momentum_slots, _, _ = _panel_state(momentum_crop, ["blue", "red"])
+    volume_color_bars, volume_slots, _, _ = _panel_state(volume_crop, ["purple", "cyan", "red", "green"])
+    momentum_color_bars, momentum_slots, _, _ = _panel_state(momentum_crop, ["blue", "red"])
 
     purple_10 = _count_slot_color(volume_slots, "purple", 10)
     purple_20 = _count_slot_color(volume_slots, "purple", 20)
