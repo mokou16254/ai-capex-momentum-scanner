@@ -8,6 +8,10 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 
+DEFAULT_VOLUME_BOX = (0.025, 0.620, 0.705, 0.770)
+DEFAULT_MOMENTUM_BOX = (0.025, 0.770, 0.705, 0.900)
+
+
 @dataclass
 class VisualScanResult:
     ticker: str
@@ -67,40 +71,6 @@ def _pixel_box(image: Image.Image, box: tuple[float, float, float, float]) -> tu
 def _crop_by_ratio(image: Image.Image, box: tuple[float, float, float, float]) -> Image.Image:
     """Crop an image using fractional coordinates: left, top, right, bottom."""
     return image.crop(_pixel_box(image, box))
-
-
-def save_debug_crops(
-    image_path: str | Path,
-    output_dir: str | Path,
-    volume_box: tuple[float, float, float, float] = (0.025, 0.620, 0.705, 0.770),
-    momentum_box: tuple[float, float, float, float] = (0.025, 0.770, 0.705, 0.900),
-) -> None:
-    """Save crop calibration images for one screenshot.
-
-    Creates:
-    - <ticker>_overlay.png: original screenshot with crop rectangles
-    - <ticker>_volume_crop.png
-    - <ticker>_momentum_crop.png
-    """
-    path = Path(image_path)
-    out_dir = Path(output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    image = Image.open(path).convert("RGB")
-    overlay = image.copy()
-    draw = ImageDraw.Draw(overlay)
-
-    volume_px = _pixel_box(image, volume_box)
-    momentum_px = _pixel_box(image, momentum_box)
-    draw.rectangle(volume_px, outline=(255, 0, 255), width=4)
-    draw.text((volume_px[0] + 6, max(0, volume_px[1] - 22)), "volume crop", fill=(255, 0, 255))
-    draw.rectangle(momentum_px, outline=(0, 200, 255), width=4)
-    draw.text((momentum_px[0] + 6, max(0, momentum_px[1] - 22)), "momentum crop", fill=(0, 200, 255))
-
-    stem = path.stem
-    overlay.save(out_dir / f"{stem}_overlay.png")
-    _crop_by_ratio(image, volume_box).save(out_dir / f"{stem}_volume_crop.png")
-    _crop_by_ratio(image, momentum_box).save(out_dir / f"{stem}_momentum_crop.png")
 
 
 def _rgb_array(image: Image.Image) -> np.ndarray:
@@ -274,11 +244,111 @@ def _visual_signal_label(score: int, purple_10: int, blue_momentum_10: int, red_
     return "No strong visual signal"
 
 
+def _draw_recent_window_debug(crop: Image.Image, bars: list[DetectedBar], output_path: str | Path, panel_label: str) -> None:
+    """Save a crop-level debug image showing detected bars and recent windows."""
+    debug = crop.convert("RGB").copy()
+    draw = ImageDraw.Draw(debug, "RGBA")
+    width, height = debug.size
+
+    if not bars:
+        draw.text((8, 8), f"{panel_label}: no detected bars", fill=(255, 255, 255, 255))
+        debug.save(output_path)
+        return
+
+    spacing = _estimate_bar_spacing(bars)
+    latest_x = max(bar.x_center for bar in bars)
+    left_10 = latest_x - 10 * spacing
+    left_20 = latest_x - 20 * spacing
+
+    # Last 20 and last 10 x-axis windows.
+    draw.rectangle((max(0, left_20), 0, min(width, latest_x + spacing), height), outline=(255, 165, 0, 230), fill=(255, 165, 0, 25), width=2)
+    draw.rectangle((max(0, left_10), 0, min(width, latest_x + spacing), height), outline=(255, 255, 0, 255), fill=(255, 255, 0, 45), width=3)
+
+    # Estimated recent 10 bar slots.
+    for i in range(11):
+        x = latest_x - i * spacing
+        if 0 <= x <= width:
+            draw.line((x, 0, x, height), fill=(180, 180, 180, 150), width=1)
+            draw.text((x + 2, 2), str(i), fill=(220, 220, 220, 180))
+
+    # Latest reference line.
+    draw.line((latest_x, 0, latest_x, height), fill=(255, 255, 255, 255), width=3)
+
+    color_map = {
+        "purple": (255, 0, 255, 255),
+        "cyan": (0, 255, 255, 255),
+        "red": (255, 70, 70, 255),
+        "green": (80, 255, 80, 255),
+        "blue": (80, 180, 255, 255),
+    }
+    for bar in bars:
+        color = color_map.get(bar.color, (220, 220, 220, 255))
+        draw.line((bar.x_center, 0, bar.x_center, height), fill=color, width=2)
+        draw.ellipse((bar.x_center - 3, height - 9, bar.x_center + 3, height - 3), fill=color)
+
+    volume_last_10 = _recent_by_x_window(bars, 10, spacing)
+    volume_last_20 = _recent_by_x_window(bars, 20, spacing)
+    summary = (
+        f"{panel_label} | spacing={spacing:.1f} | detected={len(bars)} | "
+        f"last10={len(volume_last_10)} | last20={len(volume_last_20)} | "
+        f"purple10={_count_color(volume_last_10, 'purple')} | blue10={_count_color(volume_last_10, 'blue')}"
+    )
+    draw.rectangle((0, height - 24, min(width, 900), height), fill=(0, 0, 0, 180))
+    draw.text((8, height - 20), summary, fill=(255, 255, 255, 255))
+
+    debug.save(output_path)
+
+
+def save_debug_crops(
+    image_path: str | Path,
+    output_dir: str | Path,
+    volume_box: tuple[float, float, float, float] = DEFAULT_VOLUME_BOX,
+    momentum_box: tuple[float, float, float, float] = DEFAULT_MOMENTUM_BOX,
+    include_windows: bool = True,
+) -> None:
+    """Save crop calibration images for one screenshot.
+
+    Creates:
+    - <ticker>_overlay.png: original screenshot with crop rectangles
+    - <ticker>_volume_crop.png
+    - <ticker>_momentum_crop.png
+    - <ticker>_volume_debug.png: detected bars + last10/last20 windows
+    - <ticker>_momentum_debug.png: detected bars + last10/last20 windows
+    """
+    path = Path(image_path)
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    image = Image.open(path).convert("RGB")
+    overlay = image.copy()
+    draw = ImageDraw.Draw(overlay)
+
+    volume_px = _pixel_box(image, volume_box)
+    momentum_px = _pixel_box(image, momentum_box)
+    draw.rectangle(volume_px, outline=(255, 0, 255), width=4)
+    draw.text((volume_px[0] + 6, max(0, volume_px[1] - 22)), "volume crop", fill=(255, 0, 255))
+    draw.rectangle(momentum_px, outline=(0, 200, 255), width=4)
+    draw.text((momentum_px[0] + 6, max(0, momentum_px[1] - 22)), "momentum crop", fill=(0, 200, 255))
+
+    stem = path.stem
+    volume_crop = _crop_by_ratio(image, volume_box)
+    momentum_crop = _crop_by_ratio(image, momentum_box)
+    overlay.save(out_dir / f"{stem}_overlay.png")
+    volume_crop.save(out_dir / f"{stem}_volume_crop.png")
+    momentum_crop.save(out_dir / f"{stem}_momentum_crop.png")
+
+    if include_windows:
+        volume_bars = _detect_colored_bars(volume_crop, ["purple", "cyan", "red", "green"], min_col_pixel_ratio=0.05)
+        momentum_bars = _detect_colored_bars(momentum_crop, ["blue", "red"], min_col_pixel_ratio=0.04)
+        _draw_recent_window_debug(volume_crop, volume_bars, out_dir / f"{stem}_volume_debug.png", "volume")
+        _draw_recent_window_debug(momentum_crop, momentum_bars, out_dir / f"{stem}_momentum_debug.png", "momentum")
+
+
 def analyze_kova_screenshot(
     image_path: str | Path,
     ticker: str | None = None,
-    volume_box: tuple[float, float, float, float] = (0.025, 0.620, 0.705, 0.770),
-    momentum_box: tuple[float, float, float, float] = (0.025, 0.770, 0.705, 0.900),
+    volume_box: tuple[float, float, float, float] = DEFAULT_VOLUME_BOX,
+    momentum_box: tuple[float, float, float, float] = DEFAULT_MOMENTUM_BOX,
 ) -> VisualScanResult:
     """Analyze one TradingView screenshot using fixed-layout crop ratios."""
     path = Path(image_path)
