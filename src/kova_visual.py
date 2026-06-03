@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Iterable
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
 @dataclass
@@ -47,11 +47,60 @@ class DetectedBar:
     pixel_count: int
 
 
-def _crop_by_ratio(image: Image.Image, box: tuple[float, float, float, float]) -> Image.Image:
-    """Crop an image using fractional coordinates: left, top, right, bottom."""
+def parse_box(value: str) -> tuple[float, float, float, float]:
+    """Parse a crop box string: left,top,right,bottom."""
+    parts = [float(part.strip()) for part in value.split(",")]
+    if len(parts) != 4:
+        raise ValueError("Crop box must have four comma-separated numbers: left,top,right,bottom")
+    left, top, right, bottom = parts
+    if not (0 <= left < right <= 1 and 0 <= top < bottom <= 1):
+        raise ValueError("Crop box values must satisfy 0 <= left < right <= 1 and 0 <= top < bottom <= 1")
+    return left, top, right, bottom
+
+
+def _pixel_box(image: Image.Image, box: tuple[float, float, float, float]) -> tuple[int, int, int, int]:
     width, height = image.size
     left, top, right, bottom = box
-    return image.crop((int(width * left), int(height * top), int(width * right), int(height * bottom)))
+    return int(width * left), int(height * top), int(width * right), int(height * bottom)
+
+
+def _crop_by_ratio(image: Image.Image, box: tuple[float, float, float, float]) -> Image.Image:
+    """Crop an image using fractional coordinates: left, top, right, bottom."""
+    return image.crop(_pixel_box(image, box))
+
+
+def save_debug_crops(
+    image_path: str | Path,
+    output_dir: str | Path,
+    volume_box: tuple[float, float, float, float] = (0.025, 0.575, 0.835, 0.705),
+    momentum_box: tuple[float, float, float, float] = (0.025, 0.705, 0.835, 0.815),
+) -> None:
+    """Save crop calibration images for one screenshot.
+
+    Creates:
+    - <ticker>_overlay.png: original screenshot with crop rectangles
+    - <ticker>_volume_crop.png
+    - <ticker>_momentum_crop.png
+    """
+    path = Path(image_path)
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    image = Image.open(path).convert("RGB")
+    overlay = image.copy()
+    draw = ImageDraw.Draw(overlay)
+
+    volume_px = _pixel_box(image, volume_box)
+    momentum_px = _pixel_box(image, momentum_box)
+    draw.rectangle(volume_px, outline=(255, 0, 255), width=4)
+    draw.text((volume_px[0] + 6, max(0, volume_px[1] - 22)), "volume crop", fill=(255, 0, 255))
+    draw.rectangle(momentum_px, outline=(0, 200, 255), width=4)
+    draw.text((momentum_px[0] + 6, max(0, momentum_px[1] - 22)), "momentum crop", fill=(0, 200, 255))
+
+    stem = path.stem
+    overlay.save(out_dir / f"{stem}_overlay.png")
+    _crop_by_ratio(image, volume_box).save(out_dir / f"{stem}_volume_crop.png")
+    _crop_by_ratio(image, momentum_box).save(out_dir / f"{stem}_momentum_crop.png")
 
 
 def _rgb_array(image: Image.Image) -> np.ndarray:
