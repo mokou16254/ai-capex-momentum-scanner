@@ -4,6 +4,7 @@ from src.data_loader import download_price_data
 from src.indicators import add_indicators
 from src.report_generator import write_csv, write_markdown_report
 from src.scanner import scan_ticker
+from src.theme_rotation import analyze_theme_rotation, write_theme_rotation_csv, write_theme_rotation_report
 from src.utils import ensure_output_dir, flatten_watchlist, load_yaml
 
 
@@ -74,6 +75,7 @@ def main() -> None:
                 f"{label:<30} "
                 f"tech={result.row['technical_score']:>3} prio={result.row['priority_score']:>3} "
                 f"raw={result.row.get('raw_priority_score', 0):>6} "
+                f"RS5Q={str(result.row.get('rs_5d_vs_qqq')):>6} "
                 f"RS20Q={str(result.row['rs_20d_vs_qqq']):>6} "
                 f"ATR%={result.row['atr_percent']:>5} "
                 f"RVOL={result.row['relative_volume']:>4}"
@@ -82,8 +84,12 @@ def main() -> None:
             failures.append(f"{ticker}: {exc}")
             print(f"[{index:>3}/{len(ticker_map)}] ❌ {ticker:<6} failed: {exc}")
 
+    theme_rows = analyze_theme_rotation(results, config)
+
     write_csv(results, output_dir / "scan_results.csv")
     write_markdown_report(results, output_dir / "daily_report.md")
+    write_theme_rotation_csv(theme_rows, output_dir / "theme_rotation.csv")
+    write_theme_rotation_report(theme_rows, output_dir / "theme_rotation_report.md")
 
     print_header("Scan Summary")
     if results:
@@ -100,12 +106,21 @@ def main() -> None:
                 f"  {row['ticker']:<6} prio={row['priority_score']:>3} raw={row.get('raw_priority_score', 0):>6} "
                 f"tech={row['technical_score']:>3} {row['setup_classification']:<30} {row['conclusion']}"
             )
+    if theme_rows:
+        print("\nTop active themes:")
+        for row in theme_rows[: int(config.get("theme_top_n", 8))]:
+            print(
+                f"  #{row['theme_rank']:<2} {row['theme']:<32} "
+                f"score={row['rotation_score']:>6} {row['theme_state']} | leaders: {row['top_leaders']}"
+            )
     if failures:
         failure_path = output_dir / "failures.txt"
         failure_path.write_text("\n".join(failures), encoding="utf-8")
         print(f"\n⚠️  Completed with {len(failures)} failures. See {failure_path}")
     print(f"\n✅ Wrote {output_dir / 'scan_results.csv'}")
     print(f"✅ Wrote {output_dir / 'daily_report.md'}")
+    print(f"✅ Wrote {output_dir / 'theme_rotation.csv'}")
+    print(f"✅ Wrote {output_dir / 'theme_rotation_report.md'}")
 
 
 if __name__ == "__main__":
