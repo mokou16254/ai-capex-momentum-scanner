@@ -13,7 +13,7 @@ DEFAULT_MOMENTUM_BOX = (0.025, 0.770, 0.705, 0.900)
 
 # Calibrated from the fixed TradingView layout/crop.
 # The slots are intentionally fixed rather than inferred from detected colors.
-DEFAULT_LATEST_X_RATIO = 0.815
+DEFAULT_LATEST_X_RATIO = 0.818
 DEFAULT_BAR_SPACING_RATIO = 0.0104
 DEFAULT_SLOT_RADIUS = 4
 RECENT_SLOT_COUNT = 60
@@ -104,7 +104,7 @@ def _color_mask(rgb: np.ndarray, color: str) -> np.ndarray:
     if color == "green":
         return (g >= 90) & (r <= 130) & (b <= 125) & (g - r >= 20)
     if color == "blue":
-        return (g >= 115) & (b >= 145) & (r <= 115) & (b - r >= 40)
+        return (g >= 135) & (b >= 155) & (r <= 105) & (b - r >= 50)
     raise ValueError(f"Unknown color: {color}")
 
 
