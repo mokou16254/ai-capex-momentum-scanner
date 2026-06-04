@@ -142,7 +142,7 @@ def _conclusion(
     priority_score: int | None = None,
 ) -> str:
     if label == "Pullback Setup":
-        return "Watch for bounce / constructive pullback"
+        return "JLaw-style pullback: trend intact, support test, watch entry trigger"
     if label == "Breakout Watch":
         return "Watch for breakout confirmation"
     if label == "Extended / Hold, Do Not Chase":
@@ -160,8 +160,30 @@ def _conclusion(
     return "No clean setup"
 
 
-def classify_setup(latest: pd.Series, config: dict[str, Any]) -> tuple[str, list[str], int]:
-    """Classify a ticker and return label, notes, and technical score."""
+def _is_bounce_signal(latest: pd.Series, previous: pd.Series, ema10: float, ema21: float) -> bool:
+    close = float(latest["Close"])
+    open_ = float(latest["Open"])
+    prev_close = float(previous["Close"])
+    pct_change = float(latest.get("PctChange", 0) or 0)
+    range_position = float(latest.get("RangePosition", 0.5) or 0.5)
+
+    green_reversal = close > open_ and close > prev_close and range_position >= 0.55
+    strong_close = pct_change > 0 and range_position >= 0.70
+    regained_ema10 = close > ema10 and prev_close <= float(previous.get("EMA10", ema10))
+    defended_ema21 = close > ema21 and float(latest["Low"]) <= ema21 * 1.015 and range_position >= 0.50
+    return green_reversal or strong_close or regained_ema10 or defended_ema21
+
+
+def classify_setup(data: pd.DataFrame, config: dict[str, Any]) -> tuple[str, list[str], int]:
+    """Classify a ticker and return label, notes, and technical score.
+
+    Pullback logic is deliberately stricter than a simple EMA touch:
+    it requires prior trend strength, a controlled test of EMA support,
+    and, by default, a bounce / reversal signal.
+    """
+    latest = data.iloc[-1]
+    previous = data.iloc[-2] if len(data) >= 2 else latest
+
     close = float(latest["Close"])
     ema10 = float(latest["EMA10"])
     ema21 = float(latest["EMA21"])
@@ -202,7 +224,11 @@ def classify_setup(latest: pd.Series, config: dict[str, Any]) -> tuple[str, list
         score += 5
         notes.append("Volume is calm")
 
-    if abs(dist10) <= float(config["pullback_distance_to_ema_percent"]) or abs(dist21) <= float(config["pullback_distance_to_ema_percent"]):
+    near_ema_support = (
+        abs(dist10) <= float(config["pullback_distance_to_ema_percent"])
+        or abs(dist21) <= float(config["pullback_distance_to_ema_percent"])
+    )
+    if near_ema_support:
         score += 10
         notes.append("Near EMA support")
 
@@ -216,6 +242,51 @@ def classify_setup(latest: pd.Series, config: dict[str, Any]) -> tuple[str, list
     if dist21 > float(config["extended_distance_to_ema21_percent"]):
         score -= 8
         notes.append("Extended above EMA21")
+
+    pullback_min_20d_return = float(config.get("pullback_min_20d_return_percent", 8.0))
+    pullback_min_60d_return = float(config.get("pullback_min_60d_return_percent", 15.0))
+    pullback_max_rvol = float(config.get("pullback_max_relative_volume", 1.25))
+    support_buffer = float(config.get("pullback_support_buffer_percent", 3.0)) / 100
+    bounce_required = bool(config.get("pullback_require_bounce_signal", True))
+
+    ret20 = _safe_pct_return(data, 20)
+    ret60 = _safe_pct_return(data, 60)
+    trend_qualified = (
+        close > ema50
+        and ema10 > ema21 > ema50
+        and (
+            (ret20 is not None and ret20 >= pullback_min_20d_return)
+            or (ret60 is not None and ret60 >= pullback_min_60d_return)
+            or _near_high(latest, "High50", 8.0)
+        )
+    )
+    support_test = (
+        float(latest["Low"]) <= ema10 * (1 + support_buffer)
+        or float(latest["Low"]) <= ema21 * (1 + support_buffer)
+        or near_ema_support
+    )
+    controlled_pullback = (
+        close > ema21
+        and close > ema50
+        and float(config["rsi_pullback_min"]) <= rsi <= float(config["rsi_pullback_max"])
+        and rel_vol <= pullback_max_rvol
+    )
+    bounce_signal = _is_bounce_signal(latest, previous, ema10, ema21)
+
+    if trend_qualified:
+        score += 10
+        notes.append("Prior trend qualifies for pullback trade")
+    if support_test:
+        score += 8
+        notes.append("Tested EMA10/EMA21 support zone")
+    if controlled_pullback:
+        score += 8
+        notes.append("Controlled pullback: RSI reset and no heavy distribution volume")
+    if bounce_signal:
+        score += 10
+        notes.append("Bounce/reversal signal present")
+    elif trend_qualified and support_test and controlled_pullback:
+        notes.append("Pullback watch only: needs bounce confirmation")
 
     breakdown = (
         close < ema21
@@ -235,12 +306,12 @@ def classify_setup(latest: pd.Series, config: dict[str, Any]) -> tuple[str, list
         and not extended
     )
     pullback = (
-        close > ema21
-        and close > ema50
-        and float(config["rsi_pullback_min"]) <= rsi <= float(config["rsi_pullback_max"])
-        and (abs(dist10) <= float(config["pullback_distance_to_ema_percent"]) or abs(dist21) <= float(config["pullback_distance_to_ema_percent"]))
-        and rel_vol < float(config["relative_volume_breakdown_min"])
+        trend_qualified
+        and support_test
+        and controlled_pullback
+        and (bounce_signal or not bounce_required)
         and not breakdown
+        and not extended
     )
 
     if breakdown:
@@ -255,7 +326,7 @@ def classify_setup(latest: pd.Series, config: dict[str, Any]) -> tuple[str, list
         notes.append("Meets breakout-watch criteria")
     elif pullback:
         label = "Pullback Setup"
-        notes.append("Constructive pullback criteria")
+        notes.append("JLaw-style pullback criteria")
     else:
         label = "Neutral"
 
@@ -277,7 +348,7 @@ def scan_ticker(
     benchmark_data: dict[str, pd.DataFrame] | None = None,
 ) -> ScanResult:
     latest = data.iloc[-1]
-    label, notes, technical_score = classify_setup(latest, config)
+    label, notes, technical_score = classify_setup(data, config)
 
     close = float(latest["Close"])
     ema10 = float(latest["EMA10"])
